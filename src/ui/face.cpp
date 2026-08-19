@@ -1,10 +1,14 @@
 #include "face.h"
 #include "../display/display.h"
 #include "skins.h"
+#include "mood.h"
+#include "tuning.h"
+#include "asciiart.h"
 #include "../assets/cat.h"
 #include "../assets/google.h"
 #include <Arduino.h>
 #include <Preferences.h>
+#include <esp_system.h>
 #include <cstdlib>
 #include <cmath>
 
@@ -26,6 +30,13 @@ uint8_t layout = LAYOUT_DEFAULT;
 const char* idleEyes = "o o";
 const char* idleMouth = "-";
 int skinIndex = 0;
+uint8_t animIndex = 0;
+
+// Energy-scaled clock for ASCII-art playback. Accumulating scaled deltas
+// (rather than scaling millis() directly) keeps the loop continuous when
+// the mood changes mid-animation.
+uint32_t asciiPhaseMs = 0;
+uint32_t asciiLastMs = 0;
 
 Preferences prefs;
 
@@ -52,11 +63,21 @@ uint32_t randRange(uint32_t lo, uint32_t hi) {
 }
 
 void scheduleNextBlink(uint32_t now) {
-    nextBlinkMs = now + randRange(2000, 5000);
+    uint32_t lo, hi;
+    mood::blinkInterval(lo, hi);
+    nextBlinkMs = now + randRange(lo, hi);
 }
 
 void scheduleNextSpecial(uint32_t now) {
-    nextSpecialMs = now + randRange(4000, 9000);
+    uint32_t lo, hi;
+    mood::specialInterval(lo, hi);
+    nextSpecialMs = now + randRange(lo, hi);
+}
+
+// Reserved for physical interaction: only the friendly reactions, so a
+// button press reads as "hello" rather than as a random twitch.
+Special pickPleased() {
+    return (rand() % 2 == 0) ? Special::Wink : Special::Dance;
 }
 
 Special pickSpecial() {
@@ -203,6 +224,71 @@ void drawGlitchFace(uint32_t now, bool blink) {
     }
 }
 
+// Multi-line ASCII picture. Each row is drawn as its own centered line —
+// asciiart.cpp guarantees every row of a frame has identical length, which
+// is what keeps them aligned with each other.
+void drawAsciiArtFace(uint32_t now) {
+    const asciiart::Anim& a = asciiart::ANIMS[animIndex];
+
+    const bool asleep = (mood::get() == mood::State::Asleep);
+    const asciiart::Frame* frames = a.frames;
+    uint8_t count = a.frameCount;
+    if (asleep && a.sleepFrames != nullptr && a.sleepFrameCount > 0) {
+        frames = a.sleepFrames;
+        count = a.sleepFrameCount;
+    }
+    if (count == 0) return;
+
+    uint32_t dt = now - asciiLastMs;
+    if (dt > 250) dt = 250;   // never fast-forward after a stall
+    asciiLastMs = now;
+    float e = mood::energy();
+    if (e < 0.05f) e = 0.05f;
+    asciiPhaseMs += (uint32_t)(dt * e * tuning::speedScale());
+
+    const uint16_t frameMs = a.frameMs ? a.frameMs : 200;
+    const asciiart::Frame& f = frames[(asciiPhaseMs / frameMs) % count];
+    if (f.rowCount == 0) return;
+
+    const float lineH = a.glyphH * (a.lineMul > 0.0f ? a.lineMul : 1.02f);
+    const float y0 = 0.5f - (f.rowCount - 1) * lineH * 0.5f;
+    for (uint8_t i = 0; i < f.rowCount; i++) {
+        display::drawTextCenteredNorm(0.5f, y0 + i * lineH, a.glyphH, f.rows[i], colorFace);
+    }
+
+    lastEyesText = idleEyes;
+    lastMouthText = asleep ? "zzz" : idleMouth;
+}
+
+// Sleepy 'z's drifting up and to the right. Drawn over whatever the active
+// layout produced, so every skin sleeps the same way. Coordinates stay well
+// inside the circle at their furthest point.
+void drawSleepZs(uint32_t now) {
+    for (int i = 0; i < 3; i++) {
+        float phase = ((now / 12 + i * 400) % 3600) / 3600.0f;
+        float x = 0.60f + phase * 0.14f;
+        float y = 0.34f - phase * 0.16f;
+        float h = 0.045f + i * 0.010f;
+        display::drawTextCenteredNorm(x, y, h, "z", colorFace);
+    }
+}
+
+// The skin supplies a palette, but a live override from the dashboard or
+// from BLE outranks it. Both paths land here.
+void applyPalette() {
+    const SkinDef& s = SKINS[skinIndex];
+    const tuning::State& t = tuning::get();
+    if (t.colorOverride) {
+        colorBg   = display::rgb(t.bgR, t.bgG, t.bgB);
+        colorFace = display::rgb(t.fgR, t.fgG, t.fgB);
+        colorRing = display::rgb(t.accR, t.accG, t.accB);
+    } else {
+        colorBg   = display::rgb(s.bgR, s.bgG, s.bgB);
+        colorFace = display::rgb(s.faceR, s.faceG, s.faceB);
+        colorRing = display::rgb(s.accentR, s.accentG, s.accentB);
+    }
+}
+
 }
 
 namespace face {
@@ -214,13 +300,17 @@ void setSkin(int index) {
     skinIndex = index;
     const SkinDef& s = SKINS[index];
 
-    colorBg   = display::rgb(s.bgR, s.bgG, s.bgB);
-    colorFace = display::rgb(s.faceR, s.faceG, s.faceB);
-    colorRing = display::rgb(s.accentR, s.accentG, s.accentB);
+    // Let the UI's colour pickers follow the preset, unless the user has
+    // already overridden them.
+    tuning::adoptSkinColors(s.bgR, s.bgG, s.bgB,
+                            s.faceR, s.faceG, s.faceB,
+                            s.accentR, s.accentG, s.accentB);
+    applyPalette();
     ringEnabled = s.ring;
     layout = s.layout;
     idleEyes = s.eyesIdle;
     idleMouth = s.mouthIdle;
+    animIndex = (s.anim < asciiart::ANIM_COUNT) ? s.anim : 0;
 
     prefs.putInt("skin", skinIndex);
 }
@@ -233,6 +323,14 @@ const char* getSkinName(int index) {
 }
 
 void begin() {
+    // Without this, rand() starts from the same seed on every boot and the
+    // creature replays an identical script of blinks, specials and glitch
+    // payloads every time it powers on. esp_random() is hardware-backed.
+    srand(esp_random());
+
+    mood::begin();
+    asciiLastMs = millis();
+
     colorGlitchCyan = display::rgb(60, 220, 255);
     colorGlitchMagenta = display::rgb(255, 60, 180);
 
@@ -250,7 +348,32 @@ void triggerSpecial() {
     specialUntilMs = now + ((special == Special::Dance || special == Special::Wobble) ? 1600 : 900);
 }
 
+void notifyInteraction(uint32_t now) {
+    mood::notifyInteraction(now);
+
+    // Being touched always gets an acknowledgement, and it interrupts
+    // whatever was on screen — including sleep.
+    blinking = false;
+    special = pickPleased();
+    specialUntilMs = now + ((special == Special::Dance) ? 1600 : 900);
+    scheduleNextBlink(now);
+}
+
+const char* moodName() {
+    return mood::name();
+}
+
+void refreshPalette() {
+    const SkinDef& s = SKINS[skinIndex];
+    tuning::adoptSkinColors(s.bgR, s.bgG, s.bgB,
+                            s.faceR, s.faceG, s.faceB,
+                            s.accentR, s.accentG, s.accentB);
+    applyPalette();
+}
+
 void update(uint32_t now) {
+    mood::update(now);
+
     // --- state transitions (shared by every skin/layout) ---
     if (special == Special::None) {
         if (!blinking && now >= nextBlinkMs) {
@@ -302,7 +425,7 @@ void update(uint32_t now) {
                 eyesText = "^ ^";
                 mouthText = ((now / 150) % 2 == 0) ? "u" : "w";
                 float phase = (now % 600) / 600.0f * 6.2831f;
-                float bounce = sinf(phase) * 0.035f;
+                float bounce = sinf(phase) * 0.035f * mood::energy();
                 eyesY += bounce;
                 mouthY += bounce;
                 eyesX += sinf(phase * 0.5f) * 0.02f;
@@ -337,18 +460,43 @@ void update(uint32_t now) {
             case LAYOUT_GLITCH:
                 drawGlitchFace(now, blinking);
                 break;
+            case LAYOUT_ASCIIART:
+                drawAsciiArtFace(now);
+                break;
             default: {
                 if (ringEnabled) {
                     display::drawCircleNorm(0.5f, 0.5f, 0.47f, 0.006f, colorRing);
                 }
-                const char* eyesText = blinking ? "- -" : idleEyes;
+                // The mood can override the skin's resting expression: a
+                // sleeping creature has its eyes shut whatever skin is on,
+                // and a creature with no network looks for it.
+                const char* eyesText;
+                const char* mouthText;
+                switch (mood::get()) {
+                    case mood::State::Asleep:
+                        eyesText = "- -";
+                        mouthText = "~";
+                        break;
+                    case mood::State::Lost:
+                        eyesText = blinking ? "- -" : "? ?";
+                        mouthText = "~";
+                        break;
+                    default:
+                        eyesText = blinking ? "- -" : idleEyes;
+                        mouthText = idleMouth;
+                        break;
+                }
                 display::drawTextCenteredNorm(0.5f, 0.40f, 0.20f, eyesText, colorFace);
-                display::drawTextCenteredNorm(0.5f, 0.60f, 0.16f, idleMouth, colorFace);
+                display::drawTextCenteredNorm(0.5f, 0.60f, 0.16f, mouthText, colorFace);
                 lastEyesText = eyesText;
-                lastMouthText = idleMouth;
+                lastMouthText = mouthText;
                 break;
             }
         }
+    }
+
+    if (special == Special::None && mood::get() == mood::State::Asleep) {
+        drawSleepZs(now);
     }
 
     display::endFrame(colorBg);

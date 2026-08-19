@@ -1,4 +1,5 @@
 #include "ota.h"
+#include "net/wifiprov.h"
 
 #if __has_include("../include/secrets.h")
 #include "../include/secrets.h"
@@ -27,22 +28,24 @@ bool tryConnect(const char* ssid, const char* password, uint32_t timeoutMs) {
 
 namespace ota {
 
+void startServices() {
+    ArduinoOTA.setHostname(OTA_HOSTNAME);
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+    ArduinoOTA.begin();
+}
+
 void begin() {
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(OTA_HOSTNAME);
 
-    // Dev-only blocking wait: keeps setup() simple. If neither network is
-    // reachable, the eye just starts a bit later rather than never.
-    bool connected = tryConnect(WIFI_SSID_1, WIFI_PASSWORD_1, 6000);
-    if (!connected) {
-        connected = tryConnect(WIFI_SSID_2, WIFI_PASSWORD_2, 6000);
-    }
+    // The network provisioned over Bluetooth wins: it is the one chosen most
+    // recently and on purpose. The networks compiled into secrets.h are only
+    // a fallback for a device that has never been provisioned.
+    bool connected = wifiprov::joinStored(8000);
+    if (!connected) connected = tryConnect(WIFI_SSID_1, WIFI_PASSWORD_1, 6000);
+    if (!connected) connected = tryConnect(WIFI_SSID_2, WIFI_PASSWORD_2, 6000);
 
-    if (connected) {
-        ArduinoOTA.setHostname(OTA_HOSTNAME);
-        ArduinoOTA.setPassword(OTA_PASSWORD);
-        ArduinoOTA.begin();
-    }
+    if (connected) startServices();
 }
 
 void handle() {

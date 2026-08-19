@@ -1,0 +1,7 @@
+; Copie ce fichier en platformio_local.ini et mets ton vrai OTA_PASSWORD,
+; le meme que celui de include/secrets.h. Sans lui, l'envoi par WiFi est
+; refuse par le boitier.
+
+[env:esp32dev-ota]
+upload_flags =
+    --auth=REMPLIR-ICI

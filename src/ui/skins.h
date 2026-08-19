@@ -9,6 +9,7 @@ enum SkinLayout : uint8_t {
     LAYOUT_DEFAULT = 0,   // ring + centered eyes/mouth glyphs (the common look)
     LAYOUT_CORALINE = 1,  // vignette, big sewn-button eyes, dashed stitch mouth, no ring
     LAYOUT_GLITCH = 2,    // ASCII glyphs with chromatic-aberration glitch bursts
+    LAYOUT_ASCIIART = 3,  // multi-line looping ASCII picture, from asciiart.cpp
 };
 
 struct SkinDef {
@@ -20,6 +21,9 @@ struct SkinDef {
     const char* mouthIdle;
     bool ring;
     uint8_t layout;
+    // Index into asciiart::ANIMS. Only meaningful for LAYOUT_ASCIIART;
+    // ignored (and conventionally 0) for every other layout.
+    uint8_t anim;
 };
 
 extern const SkinDef SKINS[];

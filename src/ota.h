@@ -9,4 +9,8 @@ void begin();
 void handle();
 bool isConnected();
 
+// Brings ArduinoOTA up. begin() calls this when it associates; call it again
+// if WiFi only arrives later, e.g. after provisioning over Bluetooth.
+void startServices();
+
 }

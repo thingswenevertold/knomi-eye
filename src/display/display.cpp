@@ -23,6 +23,8 @@ void begin() {
     frame.createSprite(lcd.width(), lcd.height());
 }
 
+void setBrightness(uint8_t level) { lcd.setBrightness(level); }
+
 int widthPx()  { return lcd.width(); }
 int heightPx() { return lcd.height(); }
 

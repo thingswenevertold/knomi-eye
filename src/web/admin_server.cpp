@@ -1,5 +1,6 @@
 #include "admin_server.h"
 #include "../ui/face.h"
+#include "../ui/tuning.h"
 #include "../diag.h"
 
 #if __has_include("../../include/secrets.h")
@@ -75,6 +76,7 @@ String statusJson() {
     json += "\"mouth\":\"" + jsonEscape(snap.mouth) + "\",";
     json += "\"last_button\":\"" + jsonEscape(diag::getButtonEvent()) + "\",";
     json += "\"screen\":\"" + jsonEscape(diag::getScreen()) + "\",";
+    json += "\"mood\":\"" + jsonEscape(face::moodName()) + "\",";
     json += "\"skin\":" + String(face::getSkin());
     json += "}";
     return json;
@@ -107,6 +109,12 @@ String htmlPage() {
     html += ".skin-btn{background:#221708;border:1px solid #3a2410;color:#c8763a;";
     html += "padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:2px}";
     html += ".skin-btn.active{background:#ff5a00;color:#0c0b0a;border-color:#ff5a00}";
+    html += ".tune{max-width:480px;margin-bottom:24px}";
+    html += ".tune label{display:flex;align-items:center;justify-content:space-between;";
+    html += "gap:12px;margin-bottom:12px;font-size:13px;color:#c8763a}";
+    html += ".tune input[type=color]{width:64px;height:32px;background:none;border:1px solid #3a2410;";
+    html += "padding:2px;border-radius:2px;cursor:pointer}";
+    html += "input[type=range]{width:100%;accent-color:#ff5a00}";
     html += "</style></head><body>";
 
     html += "<h1>LIVE</h1>";
@@ -119,6 +127,19 @@ String htmlPage() {
     }
     html += "</div>";
 
+    html += "<h1>TUNE</h1><div class='tune'>";
+    html += "<label>BACKGROUND<input type='color' id='c-bg'></label>";
+    html += "<label>FACE<input type='color' id='c-fg'></label>";
+    html += "<label>ACCENT<input type='color' id='c-acc'></label>";
+    html += "<div class='bar-row'><div class='bar-label'><span>BRIGHTNESS</span>";
+    html += "<span id='bri-val'>--</span></div>";
+    html += "<input type='range' min='10' max='255' id='bri'></div>";
+    html += "<div class='bar-row'><div class='bar-label'><span>SPEED</span>";
+    html += "<span id='spd-val'>--</span></div>";
+    html += "<input type='range' min='25' max='400' step='5' id='spd'></div>";
+    html += "<button class='skin-btn' id='reset-col'>RESET TO SKIN COLOURS</button>";
+    html += "</div>";
+
     html += "<h1>USAGE</h1>";
     const char* bars[4][2] = {{"heap", "HEAP"}, {"psram", "PSRAM"}, {"flash", "FLASH"}, {"signal", "SIGNAL"}};
     for (auto& b : bars) {
@@ -129,6 +150,7 @@ String htmlPage() {
 
     html += "<h1>SYSTEM</h1><table>";
     html += "<tr><td>IP</td><td>" + WiFi.localIP().toString() + "</td></tr>";
+    html += "<tr><td>Mood</td><td id='mood'>-</td></tr>";
     html += "<tr><td>Uptime</td><td id='uptime'>-</td></tr>";
     html += "<tr><td>Chip</td><td>" + String(ESP.getChipModel()) + " rev" + String(ESP.getChipRevision()) + "</td></tr>";
     html += "<tr><td>Flash size</td><td>" + String(ESP.getFlashChipSize() / (1024 * 1024)) + " MB</td></tr>";
@@ -150,15 +172,43 @@ String htmlPage() {
     html += "<script>";
     html += "function setBar(id,pct){document.getElementById(id+'-pct').textContent=pct+'%';";
     html += "document.getElementById(id+'-bar').style.width=pct+'%';}";
-    html += "function setSkin(i){fetch('/api/skin?index='+i);}";
+    html += "function setSkin(i){tune('skin='+i);}";
     html += "function markSkin(i){document.querySelectorAll('.skin-btn').forEach(function(b){";
     html += "b.classList.toggle('active', b.dataset.i==i);});}";
+    html += "function hx(v){return [parseInt(v.substr(1,2),16),parseInt(v.substr(3,2),16),";
+    html += "parseInt(v.substr(5,2),16)];}";
+    html += "function h2(n){return ('0'+n.toString(16)).slice(-2);}";
+    html += "function toHex(a){return '#'+h2(a[0])+h2(a[1])+h2(a[2]);}";
+    html += "function showTune(d){";
+    html += "document.getElementById('c-bg').value=toHex(d.bg);";
+    html += "document.getElementById('c-fg').value=toHex(d.fg);";
+    html += "document.getElementById('c-acc').value=toHex(d.accent);";
+    html += "document.getElementById('bri').value=d.brightness;";
+    html += "document.getElementById('bri-val').textContent=Math.round(d.brightness/255*100)+'%';";
+    html += "document.getElementById('spd').value=d.speedPct;";
+    html += "document.getElementById('spd-val').textContent=d.speedPct+'%';}";
+    html += "function tune(q){fetch('/api/tune?'+q).then(function(r){return r.json();})";
+    html += ".then(showTune);}";
+    html += "function pushColors(){var b=hx(document.getElementById('c-bg').value),";
+    html += "f=hx(document.getElementById('c-fg').value),a=hx(document.getElementById('c-acc').value);";
+    html += "tune('bgR='+b[0]+'&bgG='+b[1]+'&bgB='+b[2]+'&fgR='+f[0]+'&fgG='+f[1]+'&fgB='+f[2]";
+    html += "+'&accR='+a[0]+'&accG='+a[1]+'&accB='+a[2]);}";
+    html += "['c-bg','c-fg','c-acc'].forEach(function(id){";
+    html += "document.getElementById(id).addEventListener('change',pushColors);});";
+    html += "document.getElementById('bri').addEventListener('change',function(e){";
+    html += "tune('brightness='+e.target.value);});";
+    html += "document.getElementById('spd').addEventListener('change',function(e){";
+    html += "tune('speedPct='+e.target.value);});";
+    html += "document.getElementById('reset-col').addEventListener('click',function(){";
+    html += "tune('colorOverride=0');});";
+    html += "fetch('/api/tune').then(function(r){return r.json();}).then(showTune);";
     html += "var ws=new WebSocket('ws://'+location.host+'/ws');";
     html += "ws.onmessage=function(ev){var d=JSON.parse(ev.data);";
     html += "document.getElementById('m-eyes').textContent=d.eyes;";
     html += "document.getElementById('m-mouth').textContent=d.mouth;";
     html += "setBar('heap',d.heap_pct);setBar('psram',d.psram_pct);";
     html += "setBar('flash',d.flash_pct);setBar('signal',d.rssi_pct);";
+    html += "document.getElementById('mood').textContent=d.mood;";
     html += "document.getElementById('uptime').textContent=d.uptime_s+' s';";
     html += "markSkin(d.skin);};";
     html += "</script></body></html>";
@@ -195,6 +245,35 @@ void begin() {
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (!requireAuth(request)) return;
         request->send(200, "application/json", statusJson());
+    });
+
+    server.on("/api/tune", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+
+        // Rebuild a JSON document from the query so that HTTP and BLE share
+        // a single validate-and-apply path in tuning.cpp.
+        static const char* KEYS[] = {
+            "bgR", "bgG", "bgB", "fgR", "fgG", "fgB", "accR", "accG", "accB",
+            "brightness", "speedPct", "skin",
+        };
+        String body = "{";
+        bool first = true;
+        for (auto key : KEYS) {
+            if (!request->hasParam(key)) continue;
+            if (!first) body += ",";
+            body += "\"" + String(key) + "\":" + request->getParam(key)->value();
+            first = false;
+        }
+        if (request->hasParam("colorOverride")) {
+            if (!first) body += ",";
+            String v = request->getParam("colorOverride")->value();
+            body += "\"colorOverride\":";
+            body += (v == "1" || v == "true") ? "true" : "false";
+        }
+        body += "}";
+
+        if (body.length() > 2) tuning::applyJson(body);
+        request->send(200, "application/json", tuning::toJson());
     });
 
     server.on("/api/skin", HTTP_GET, [](AsyncWebServerRequest* request) {

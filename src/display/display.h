@@ -12,6 +12,9 @@ namespace display {
 
 void begin();
 
+// Panel backlight, 0-255. Driven by the PWM light on GPIO 2.
+void setBrightness(uint8_t level);
+
 int widthPx();
 int heightPx();
 

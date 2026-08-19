@@ -1,3 +1,11 @@
 .pio/
 .vscode/
 include/secrets.h
+
+# Electron de Tamaweb : 253 Mo dont un .exe de 172 Mo, au-dela de la limite
+# de 100 Mo par fichier de GitHub. C'est une reference, pas une dependance :
+# le jeu reel est en ligne sur https://github.com/autosam/Tamaweb
+Tamaweb-win32-x64/
+
+# Contient le mot de passe OTA.
+platformio_local.ini

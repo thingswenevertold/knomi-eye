@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>knomi-eye · télécommande BLE</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background: #0c0b0a; color: #ff5a00; margin: 0; padding: 24px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  h1 { font-size: 18px; letter-spacing: .05em; margin: 0 0 20px; }
+  h2 { font-size: 13px; letter-spacing: .08em; color: #c8763a; margin: 24px 0 12px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  button {
+    background: #221708; border: 1px solid #3a2410; color: #c8763a;
+    padding: 10px 14px; font-family: inherit; font-size: 13px;
+    border-radius: 2px; cursor: pointer;
+  }
+  button.primary { background: #ff5a00; color: #0c0b0a; border-color: #ff5a00; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  label {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 12px; font-size: 13px; color: #c8763a;
+  }
+  input[type=color] {
+    width: 64px; height: 32px; background: none; border: 1px solid #3a2410;
+    padding: 2px; border-radius: 2px; cursor: pointer;
+  }
+  input[type=range] { width: 100%; accent-color: #ff5a00; }
+  .row { margin-bottom: 16px; }
+  .row .lbl { display: flex; justify-content: space-between; font-size: 13px;
+              color: #c8763a; margin-bottom: 4px; }
+  .skins { display: flex; flex-wrap: wrap; gap: 8px; }
+  #status { font-size: 12px; color: #c8763a; margin: 12px 0 0; min-height: 2.4em; }
+  .panel[hidden] { display: none; }
+  .warn { border: 1px solid #3a2410; padding: 12px; font-size: 12px;
+          color: #c8763a; line-height: 1.5; border-radius: 2px; }
+  code { color: #ff5a00; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>knomi-eye · BLE</h1>
+
+  <div id="unsupported" class="warn" hidden>
+    Ce navigateur n'expose pas Web Bluetooth. Il faut Chrome, Edge ou Opera,
+    <b>et une origine sécurisée</b> : <code>https://…</code> ou
+    <code>http://localhost</code>. Un fichier ouvert en <code>file://</code>
+    ne fonctionnera jamais — c'est une règle du navigateur, pas un réglage.
+  </div>
+
+  <button id="connect" class="primary">CONNECTER</button>
+  <p id="status">Non connecté.</p>
+
+  <div id="panel" class="panel" hidden>
+    <h2>COULEURS</h2>
+    <label>FOND <input type="color" id="c-bg"></label>
+    <label>VISAGE <input type="color" id="c-fg"></label>
+    <label>ACCENT <input type="color" id="c-acc"></label>
+    <button id="reset-col">COULEURS DU SKIN</button>
+
+    <h2>RÉGLAGES</h2>
+    <div class="row">
+      <div class="lbl"><span>LUMINOSITÉ</span><span id="bri-val">--</span></div>
+      <input type="range" min="10" max="255" id="bri">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>VITESSE</span><span id="spd-val">--</span></div>
+      <input type="range" min="25" max="400" step="5" id="spd">
+    </div>
+
+    <h2>SKIN</h2>
+    <div class="skins" id="skins"></div>
+  </div>
+</div>
+
+<script>
+// Nordic UART Service — the same UUIDs the firmware advertises, which is why
+// any generic BLE terminal app also works with this device.
+const SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';  // nous -> boîtier
+const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';  // boîtier -> nous
+
+let rxChar = null;
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+const $ = id => document.getElementById(id);
+const status = msg => { $('status').textContent = msg; };
+
+if (!navigator.bluetooth) {
+  $('unsupported').hidden = false;
+  $('connect').disabled = true;
+}
+
+function h2(n) { return ('0' + n.toString(16)).slice(-2); }
+function toHex(a) { return '#' + h2(a[0]) + h2(a[1]) + h2(a[2]); }
+function fromHex(v) {
+  return [parseInt(v.substr(1, 2), 16),
+          parseInt(v.substr(3, 2), 16),
+          parseInt(v.substr(5, 2), 16)];
+}
+
+// Writes are fire-and-forget and can arrive faster than the link drains, so
+// keep at most one in flight and coalesce the rest.
+let sending = false, queued = null;
+async function send(obj) {
+  if (!rxChar) return;
+  if (sending) { queued = obj; return; }
+  sending = true;
+  try {
+    await rxChar.writeValueWithoutResponse(enc.encode(JSON.stringify(obj)));
+  } catch (e) {
+    status('Écriture refusée : ' + e.message);
+  }
+  sending = false;
+  if (queued) { const q = queued; queued = null; send(q); }
+}
+
+let skinCount = 0;
+function render(d) {
+  $('c-bg').value = toHex(d.bg);
+  $('c-fg').value = toHex(d.fg);
+  $('c-acc').value = toHex(d.accent);
+  $('bri').value = d.brightness;
+  $('bri-val').textContent = Math.round(d.brightness / 255 * 100) + '%';
+  $('spd').value = d.speedPct;
+  $('spd-val').textContent = d.speedPct + '%';
+
+  if (d.skinCount !== skinCount) {
+    skinCount = d.skinCount;
+    const box = $('skins');
+    box.innerHTML = '';
+    for (let i = 0; i < skinCount; i++) {
+      const b = document.createElement('button');
+      b.textContent = i;
+      b.onclick = () => send({ skin: i });
+      box.appendChild(b);
+    }
+  }
+}
+
+function pushColors() {
+  const b = fromHex($('c-bg').value);
+  const f = fromHex($('c-fg').value);
+  const a = fromHex($('c-acc').value);
+  send({ bgR: b[0], bgG: b[1], bgB: b[2],
+         fgR: f[0], fgG: f[1], fgB: f[2],
+         accR: a[0], accG: a[1], accB: a[2] });
+}
+
+['c-bg', 'c-fg', 'c-acc'].forEach(id => $(id).addEventListener('input', pushColors));
+$('bri').addEventListener('input', e => {
+  $('bri-val').textContent = Math.round(e.target.value / 255 * 100) + '%';
+  send({ brightness: +e.target.value });
+});
+$('spd').addEventListener('input', e => {
+  $('spd-val').textContent = e.target.value + '%';
+  send({ speedPct: +e.target.value });
+});
+$('reset-col').addEventListener('click', () => send({ colorOverride: false }));
+
+$('connect').addEventListener('click', async () => {
+  try {
+    status('Sélectionne knomi-eye dans la liste…');
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SVC] }],
+      optionalServices: [SVC],
+    });
+    dev.addEventListener('gattserverdisconnected', () => {
+      status('Déconnecté.');
+      $('panel').hidden = true;
+      rxChar = null;
+    });
+
+    status('Connexion…');
+    const gatt = await dev.gatt.connect();
+    const svc = await gatt.getPrimaryService(SVC);
+    rxChar = await svc.getCharacteristic(RX);
+
+    const tx = await svc.getCharacteristic(TX);
+    await tx.startNotifications();
+    tx.addEventListener('characteristicvaluechanged', ev => {
+      try {
+        render(JSON.parse(dec.decode(ev.target.value)));
+        $('panel').hidden = false;
+      } catch (e) { /* trame partielle : la suivante corrigera */ }
+    });
+
+    status('Connecté à ' + (dev.name || 'knomi-eye') + '.');
+    // Nudge the device into sending its state.
+    send({});
+  } catch (e) {
+    status('Échec : ' + e.message);
+  }
+});
+</script>
+</body>
+</html>
