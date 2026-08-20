@@ -3,12 +3,7 @@
 #include "../diag.h"
 #include "../state.h"
 #include "../weather.h"
-
-#if __has_include("../../include/secrets.h")
-#include "../../include/secrets.h"
-#else
-#error "include/secrets.h missing: copy include/secrets.h.example to include/secrets.h"
-#endif
+#include "../identity.h"
 
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
@@ -30,7 +25,7 @@ int clampInt(int v, int lo, int hi) {
 }
 
 bool requireAuth(AsyncWebServerRequest* request) {
-    if (!request->authenticate("admin", ADMIN_PASSWORD)) {
+    if (!request->authenticate("admin", identity::adminPassword())) {
         request->requestAuthentication();
         return false;
     }

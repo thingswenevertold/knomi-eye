@@ -7,6 +7,7 @@
 #endif
 
 #include "display/display.h"
+#include "identity.h"
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <WiFiManager.h>
@@ -46,7 +47,7 @@ namespace ota {
 
 void begin() {
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(OTA_HOSTNAME);
+    WiFi.setHostname(identity::hostname());
 
     // Dev-only blocking wait: keeps setup() simple. If neither known network
     // is reachable, fall back to a WiFiManager captive portal so anyone
@@ -61,12 +62,12 @@ void begin() {
         WiFiManager wm;
         wm.setAPCallback(showSetupScreen);
         wm.setConfigPortalTimeout(180); // give up after 3 min so the device doesn't hang forever unattended
-        connected = wm.autoConnect(OTA_HOSTNAME);
+        connected = wm.autoConnect(identity::hostname());
     }
 
     if (connected) {
-        ArduinoOTA.setHostname(OTA_HOSTNAME);
-        ArduinoOTA.setPassword(OTA_PASSWORD);
+        ArduinoOTA.setHostname(identity::hostname());
+        ArduinoOTA.setPassword(identity::otaPassword());
         ArduinoOTA.begin();
     }
 }

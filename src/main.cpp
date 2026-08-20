@@ -10,6 +10,7 @@
 #include "state.h"
 #include "weather.h"
 #include "updater.h"
+#include "identity.h"
 
 namespace {
     enum class Screen { Face, Status };
@@ -20,6 +21,7 @@ namespace {
 }
 
 void setup() {
+    identity::begin();
     display::begin();
     face::begin();
     status::begin();
