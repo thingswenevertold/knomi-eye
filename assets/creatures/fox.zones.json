@@ -1,9 +1,9 @@
 {
   "image": "fox.jpg",
   "render": {
-    "floor": 0.3,
-    "amp": 0.26,
-    "levels": 6,
+    "floor": 0.1,
+    "amp": 0.8,
+    "levels": 9,
     "eyeRx": 0.58,
     "eyeRy": 0.73,
     "contrast": 1.06,

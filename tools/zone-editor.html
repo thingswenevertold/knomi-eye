@@ -128,11 +128,11 @@ const KINDS = [
 // Chaque reglage porte le nom que le generateur Python lira dans le
 // manifeste : ce qu'on regle ici est exactement ce qui sera produit.
 const SETTINGS = [
-  { id: 'floor',   label: 'PLANCHER',    min: 0,   max: 60,  def: 24, div: 100,
+  { id: 'floor',   label: 'PLANCHER',    min: 0,   max: 60,  def: 10, div: 100,
     help: 'niveau du plus sombre' },
-  { id: 'amp',     label: 'AMPLITUDE',   min: 10,  max: 80,  def: 42, div: 100,
+  { id: 'amp',     label: 'AMPLITUDE',   min: 10,  max: 90,  def: 80, div: 100,
     help: 'ecart entre sombre et clair' },
-  { id: 'levels',  label: 'TONS',        min: 2,   max: 10,  def: 5,  div: 1,
+  { id: 'levels',  label: 'TONS',        min: 2,   max: 14,  def: 9,  div: 1,
     help: 'posterisation' },
   { id: 'eyeRx',   label: 'ŒIL LARGEUR', min: 30,  max: 140, def: 62, div: 100 },
   { id: 'eyeRy',   label: 'ŒIL HAUTEUR', min: 40,  max: 220, def: 125, div: 100 },

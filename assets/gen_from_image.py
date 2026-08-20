@@ -44,7 +44,7 @@ N_IDLE, N_EXPR = 40, 16
 # Valeurs par defaut du rendu. L editeur de zones expose les memes noms, et
 # les embarque dans le manifeste : regler dans le navigateur suffit.
 DEFAULT_RENDER = {
-    "floor": 0.24, "amp": 0.42, "levels": 5,
+    "floor": 0.10, "amp": 0.80, "levels": 9,
     "eyeRx": 0.62, "eyeRy": 1.25,
     "contrast": 1.00, "bright": 0.00, "blur": 0.75,
 }
