@@ -1,4 +1,5 @@
 #include "admin_server.h"
+#include "play_page.h"
 #include "../ui/face.h"
 #include "../ui/tuning.h"
 #include "../diag.h"
@@ -285,6 +286,53 @@ void begin() {
         int idx = request->getParam("index")->value().toInt();
         face::setSkin(idx);
         request->send(200, "text/plain", face::getSkinName(face::getSkin()));
+    });
+
+    // The phone app. Same origin as the API it calls, so the browser reuses
+    // the Basic Auth credentials without a second prompt.
+    server.on("/play", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        request->send_P(200, "text/html", playpage::HTML);
+    });
+
+    server.on("/api/anim", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        if (!request->hasParam("name")) {
+            request->send(400, "text/plain", "missing ?name=");
+            return;
+        }
+        const String name = request->getParam("name")->value();
+        if (!face::playAnim(name.c_str())) {
+            request->send(404, "text/plain", "unknown animation");
+            return;
+        }
+        request->send(200, "text/plain", name);
+    });
+
+    // Exactly what the physical button does, so a tap on a phone and a poke
+    // on the device are the same event as far as the mood layer is concerned.
+    server.on("/api/pet", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        face::notifyInteraction(millis());
+        request->send(200, "text/plain", face::moodName());
+    });
+
+    // What this firmware can do, by name. A client builds its buttons from
+    // this instead of shipping a copy that drifts.
+    server.on("/api/list", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        String j = "{\"skinNames\":[";
+        for (int i = 0; i < face::getSkinCount(); i++) {
+            if (i) j += ",";
+            j += "\"" + jsonEscape(face::getSkinName(i)) + "\"";
+        }
+        j += "],\"animNames\":[";
+        for (int i = 0; i < face::getAnimCount(); i++) {
+            if (i) j += ",";
+            j += "\"" + jsonEscape(face::getAnimName(i)) + "\"";
+        }
+        j += "]}";
+        request->send(200, "application/json", j);
     });
 
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t) {

@@ -11,6 +11,7 @@
 #include <esp_system.h>
 #include <cstdlib>
 #include <cmath>
+#include <cstring>
 
 // Multi-skin ASCII face. Most skins share one generic template (ring +
 // centered eyes/mouth glyphs); a couple of skins (Coraline, Glitch) use a
@@ -88,6 +89,24 @@ Special pickSpecial() {
         default: return Special::Surprised;
     }
 }
+
+// The big moves need longer on screen than a wink to read as deliberate.
+uint32_t specialDuration(Special s) {
+    return (s == Special::Dance || s == Special::Wobble) ? 1600 : 900;
+}
+
+// The animations a remote control can ask for by name. Keeping the table in
+// the firmware and letting clients read it back means a phone builds its
+// buttons from what the device can actually play, instead of shipping a copy
+// that drifts the moment an animation is added here.
+struct NamedAnim { const char* name; Special kind; };
+const NamedAnim NAMED_ANIMS[] = {
+    { "wink",      Special::Wink      },
+    { "dance",     Special::Dance     },
+    { "wobble",    Special::Wobble    },
+    { "surprised", Special::Surprised },
+};
+const int NAMED_ANIM_COUNT = sizeof(NAMED_ANIMS) / sizeof(NAMED_ANIMS[0]);
 
 // Big, chunky, cute sewn-button eye. Used by the Coraline layout.
 void drawButtonEyes(float centerY) {
@@ -345,7 +364,28 @@ void begin() {
 void triggerSpecial() {
     uint32_t now = millis();
     special = pickSpecial();
-    specialUntilMs = now + ((special == Special::Dance || special == Special::Wobble) ? 1600 : 900);
+    specialUntilMs = now + specialDuration(special);
+}
+
+bool playAnim(const char* name) {
+    if (name == nullptr) return false;
+    for (int i = 0; i < NAMED_ANIM_COUNT; i++) {
+        if (strcmp(name, NAMED_ANIMS[i].name) != 0) continue;
+        // Same interruption rules as a button long-press: whatever is on
+        // screen gives way, a blink in flight included.
+        blinking = false;
+        special = NAMED_ANIMS[i].kind;
+        specialUntilMs = millis() + specialDuration(special);
+        return true;
+    }
+    return false;
+}
+
+int getAnimCount() { return NAMED_ANIM_COUNT; }
+
+const char* getAnimName(int index) {
+    if (index < 0 || index >= NAMED_ANIM_COUNT) return "";
+    return NAMED_ANIMS[index].name;
 }
 
 void notifyInteraction(uint32_t now) {

@@ -1,5 +1,6 @@
 #include "ble.h"
 #include "wifiprov.h"
+#include "../ui/face.h"
 #include "../ui/tuning.h"
 #include "../util/minijson.h"
 
@@ -101,6 +102,36 @@ void runCommand(const String& body) {
         }
         if (cmd == "forget") {
             wifiprov::forget();
+            return;
+        }
+        if (cmd == "anim") {
+            String name;
+            minijson::getString(body, "name", name);
+            face::playAnim(name.c_str());
+            return;
+        }
+        if (cmd == "pet") {
+            // Exactly what the physical button does, so a tap on a phone and
+            // a poke on the device are the same event to the mood layer.
+            face::notifyInteraction(millis());
+            return;
+        }
+        if (cmd == "list") {
+            // The catalogue a remote needs to label its buttons. Sent only on
+            // request: the periodic state push has to stay inside one BLE
+            // notification, and these names would not fit there.
+            String j = "{\"skinNames\":[";
+            for (int i = 0; i < face::getSkinCount(); i++) {
+                if (i) j += ",";
+                j += "\"" + minijson::escape(face::getSkinName(i)) + "\"";
+            }
+            j += "],\"animNames\":[";
+            for (int i = 0; i < face::getAnimCount(); i++) {
+                if (i) j += ",";
+                j += "\"" + minijson::escape(face::getAnimName(i)) + "\"";
+            }
+            j += "]}";
+            pendingReply = j;
             return;
         }
     }

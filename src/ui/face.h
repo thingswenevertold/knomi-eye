@@ -10,6 +10,17 @@ void update(uint32_t nowMs);
 // button long-press), regardless of the idle random-trigger timer.
 void triggerSpecial();
 
+// Plays one *named* animation immediately, for a remote control that wants a
+// specific move rather than a surprise. Returns false and changes nothing if
+// the name is not one of getAnimName()'s.
+bool playAnim(const char* name);
+
+// The animations playAnim() accepts. A client should read these rather than
+// hardcode them, so adding an animation to the firmware is enough to make it
+// appear in every remote.
+int getAnimCount();
+const char* getAnimName(int index);
+
 // Someone physically interacted with the device. Wakes the creature, makes
 // it attentive for a while, and provokes a pleased reaction. Call this for
 // any button event — see mood.h for what it drives.
