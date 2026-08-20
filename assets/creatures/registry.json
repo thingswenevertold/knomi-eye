@@ -1,0 +1,14 @@
+{
+  "_comment": "Registre des creatures generees depuis une photo. Rempli par gen_from_image.py ; l'ordre est APPEND-ONLY car l'index de skin est persiste en NVS sur la carte — reordonner changerait le skin choisi en silence.",
+  "creatures": [
+    {
+      "id": "foxphoto",
+      "label": "Fox photo",
+      "bg": [12, 8, 6],
+      "fg": [255, 165, 90],
+      "accent": [120, 70, 30],
+      "eyes": "/\\_/\\",
+      "mouth": "w"
+    }
+  ]
+}

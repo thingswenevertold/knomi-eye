@@ -28,6 +28,7 @@ dans tools/presence.local.json, ignore par git :
 param(
     [Parameter(ParameterSetName = 'Send')][switch]$Away,
     [Parameter(ParameterSetName = 'Send')][switch]$Present,
+    [Parameter(ParameterSetName = 'Send')][switch]$Heartbeat,
     [Parameter(ParameterSetName = 'Install')][switch]$Install,
     [Parameter(ParameterSetName = 'Uninstall')][switch]$Uninstall
 )
@@ -112,6 +113,17 @@ function Register-One([string]$Name, [string]$TriggerXml, [string]$Arg) {
     Write-Output "declencheur enregistre : $Name"
 }
 
+if ($Heartbeat) {
+    # Les quatre declencheurs ne tirent que sur TRANSITION. Or la carte
+    # oublie tout a chaque redemarrage — et elle redemarre a chaque envoi
+    # OTA — puis retombe sur son minuteur et s'endort au bout de douze
+    # minutes alors qu'on est assis devant. Ce battement renvoie l'ETAT
+    # toutes les cinq minutes : LogonUI en vie = session verrouillee.
+    $locked = [bool](Get-Process -Name LogonUI -ErrorAction SilentlyContinue)
+    Send-Presence -IsAway:$locked
+    exit 0
+}
+
 if ($Install) {
     $sid = "<SessionStateChangeTrigger><StateChange>%STATE%</StateChange><UserId>$env:USERDOMAIN\$env:USERNAME</UserId><Enabled>true</Enabled></SessionStateChangeTrigger>"
     # Kernel-Power 42 = entree en veille, 107 = sortie de veille.
@@ -125,13 +137,23 @@ if ($Install) {
     Register-One "$TaskPrefix - unlock"  ($sid -replace '%STATE%', 'SessionUnlock') '-Present'
     Register-One "$TaskPrefix - sleep"   ($evt -replace '%ID%', '42')               '-Away'
     Register-One "$TaskPrefix - resume"  ($evt -replace '%ID%', '107')              '-Present'
+    # Toutes les cinq minutes, l'etat reel : c'est ce qui repare la carte
+    # apres un redemarrage, quand aucune transition ne se produit.
+    $beat = @'
+    <TimeTrigger>
+      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <Repetition><Interval>PT5M</Interval></Repetition>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+'@
+    Register-One "$TaskPrefix - heartbeat" $beat '-Heartbeat'
     Write-Output ''
     Write-Output 'Installe. Verrouille ta session (Win+L) pour essayer.'
     exit 0
 }
 
 if ($Uninstall) {
-    foreach ($n in 'lock', 'unlock', 'sleep', 'resume') {
+    foreach ($n in 'lock', 'unlock', 'sleep', 'resume', 'heartbeat') {
         $full = "$TaskPrefix - $n"
         try { Unregister-ScheduledTask -TaskName $full -Confirm:$false; Write-Output "retire : $full" }
         catch { Write-Output "absent : $full" }

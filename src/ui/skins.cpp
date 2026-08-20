@@ -31,7 +31,10 @@ const SkinDef SKINS[] = {
     // Ajouter uniquement ici : l index de skin est persiste en NVS, donc
     // reordonner la table reassignerait silencieusement le skin choisi.
     { "Fox",           14,  8,   4,   255,  150, 60,  120, 60,  20, "/\_/\\", "w", false, LAYOUT_ASCIIART, 4 },
-    { "Fox photo",     12,  8,   6,   255,  165, 90,  120, 70,  30, "/\_/\\", "w", false, LAYOUT_ASCIIART, 5 },
+    // Les skins des creatures issues d'une photo sont emis par le
+    // generateur, dans l'ordre du registre — append-only, l'index etant
+    // persiste en NVS sur la carte.
+#include "../assets/photo_skins.inc"
 };
 
 const int SKIN_COUNT = sizeof(SKINS) / sizeof(SKINS[0]);
