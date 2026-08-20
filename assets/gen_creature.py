@@ -21,6 +21,7 @@ Needs: pip install pillow numpy
 
 import math
 import os
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -40,6 +41,75 @@ RAMP = " .`',:;!~+=*xo#%8@"
 # de la cadence — seulement de la finesse de l'animation elle-meme.
 N_FRAMES = 80                # ~4.4 s de boucle a 55 ms
 N_SLEEP = 24
+
+# --- profils de creature ---------------------------------------------------
+# Tout le dessin etait deja en coordonnees normalisees : les formes sortent
+# donc dans cette table, et une espece de plus n'est qu'une ligne.
+#
+# Ce qui distingue les especes a 40x30, par ordre de lisibilite : la hauteur
+# des oreilles d'abord, la forme du museau ensuite. Les nuances de pelage,
+# elles, ne survivent pas a la conversion.
+PROFILES = {
+    "cat": {
+        "prefix": "CAT",
+        "export": "CAT",
+        "out": "cat_ascii",
+        "head_rx": 0.355, "head_ry": 0.315, "head_cy": 0.585,
+        "ear_base": 0.58, "ear_tip": 0.95, "ear_h": 0.250,
+        "ear_w_in": 0.085, "ear_w_out": 0.105, "ear_round": 0.0,
+        "cheek_dx": 0.78, "cheek_dy": 0.26, "cheek_rx": 0.090, "cheek_ry": 0.110,
+        "muzzle_rx": 0.150, "muzzle_ry": 0.098, "muzzle_dy": 0.44,
+        "snout": 0.0, "taper": 0.0, "taper_from": 0.0, "ear_dark": 0.0, "muzzle_val": 0.68,
+        "bib": 0.0,
+        "eye_dx": 0.45, "eye_dy": -0.16, "eye_scale": 1.0, "whisker": 1.0,
+    },
+    "fox": {
+        "prefix": "FOX",
+        "export": "FOX",
+        "out": "fox_ascii",
+        # Tete plus etroite et plus haute, portee un peu plus bas pour
+        # laisser respirer des oreilles nettement plus grandes.
+        # Crane nettement plus etroit que celui du chat : c est la largeur
+        # qui trahissait le felin, pas les oreilles.
+        "head_rx": 0.298, "head_ry": 0.288, "head_cy": 0.575,
+        # Oreilles hautes, pointues, et surtout ecartees : posees sur un
+        # crane etroit, elles doivent deborder pour rester des oreilles de
+        # renard et non de chaton.
+        # La pointe doit monter, pas s ecarter : un ear_tip superieur a
+        # ear_base fait partir les oreilles sur les cotes, et on lit une
+        # souris. Base large et pointe presque a l aplomb.
+        "ear_base": 0.86, "ear_tip": 0.99, "ear_h": 0.330,
+        "ear_w_in": 0.108, "ear_w_out": 0.124, "ear_round": 0.044,
+        # Fraise de joues plus marquee, portee plus bas.
+        # Fraise portee haut et resserree : trop large en bas, la silhouette
+        # s ecrase et le museau disparait — on tombe sur un lynx.
+        "cheek_dx": 0.88, "cheek_dy": 0.10, "cheek_rx": 0.076, "cheek_ry": 0.098,
+        # Museau etroit, prolonge par un long triangle : le nez du renard.
+        "muzzle_rx": 0.080, "muzzle_ry": 0.066, "muzzle_dy": 0.74,
+        "snout": 0.150, "taper": 0.66, "taper_from": 0.10,
+        # Laisse a zero : une marque sombre sur fond sombre n est pas une
+        # marque, c est un trou dans la silhouette.
+        "ear_dark": 0.0,
+        "muzzle_val": 0.88,
+        # Joues et gorge blanches : sur fond noir, seules les marques CLAIRES
+        # se lisent comme des marques. C est le signal d espece le plus fort
+        # dont on dispose ici.
+        "bib": 0.93,
+        # Oeil plus petit et moustaches courtes : cales sur un crane de
+        # chat, ils touchaient les bords et debordaient dans le vide.
+        "eye_dx": 0.50, "eye_dy": -0.20, "eye_scale": 0.76, "whisker": 0.55,
+    },
+}
+
+P = PROFILES["cat"]
+
+
+def set_profile(name):
+    global P
+    if name not in PROFILES:
+        raise SystemExit("profil inconnu : %s (connus : %s)"
+                         % (name, ", ".join(sorted(PROFILES))))
+    P = PROFILES[name]
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "..", "src", "assets")
@@ -89,7 +159,7 @@ def over(base, m, value):
 
 # --- the cat ---------------------------------------------------------------
 def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
-                 mouth_open=0.0):
+                 mouth_open=0.0, brow=0.0):
     """t in [0,1) drives breathing. Returns a 40x30 luminance array.
 
     eye_open is either one value for both eyes, or a (left, right) pair — the
@@ -98,6 +168,10 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
 
     mouth_open in [0,1] opens the muzzle into a round O. At 0 the usual
     closed cat smile is drawn.
+
+    brow in [0,1] lowers an angled brow towards the nose. A narrowed eye
+    alone reads as sleepy or pleased at this resolution; the slanted bar
+    above it is what makes anger unambiguous.
     """
     if not isinstance(eye_open, (tuple, list)):
         eye_open = (eye_open, eye_open)
@@ -108,9 +182,9 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
     breath = math.sin(t * 2.0 * math.pi)
 
     head_cx = 0.5
-    head_cy = 0.585 + breath * 0.006
-    head_rx = 0.355 + breath * 0.005
-    head_ry = 0.315 + breath * 0.009
+    head_cy = P["head_cy"] + breath * 0.006
+    head_rx = P["head_rx"] + breath * 0.005
+    head_ry = P["head_ry"] + breath * 0.009
 
     img = np.zeros((S_H, S_W), dtype=np.float32)
 
@@ -126,29 +200,73 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
     for side in (-1, 1):
         tw = twitch if ((side < 0) == (twitch < 0)) else 0.0
         tw = abs(tw) * side
-        bx = head_cx + side * head_rx * 0.58
-        ax = head_cx + side * head_rx * 0.95 + tw
-        ay = ear_y - 0.250 - abs(tw) * 0.5
+        bx = head_cx + side * head_rx * P["ear_base"]
+        ax = head_cx + side * head_rx * P["ear_tip"] + tw
+        ay = ear_y - P["ear_h"] - abs(tw) * 0.5
         outer = mask_polygon([
-            (bx - side * 0.085, ear_y + 0.035),
-            (bx + side * 0.105, ear_y - 0.020),
+            (bx - side * P["ear_w_in"], ear_y + 0.035),
+            (bx + side * P["ear_w_out"], ear_y - 0.020),
             (ax, ay),
         ])
         img = over(img, outer, fur * 0.86)
+        if P["ear_round"] > 0.001:
+            # Un triangle pur donne une oreille en lame. L ellipse au sommet
+            # l emousse et lui donne du corps.
+            img = over(img, mask_ellipse(ax, ay + P["ear_round"] * 0.55,
+                                         P["ear_round"], P["ear_round"] * 0.85),
+                       fur * 0.86)
         inner = mask_polygon([
-            (bx - side * 0.040, ear_y + 0.012),
-            (bx + side * 0.070, ear_y - 0.018),
+            (bx - side * P["ear_w_in"] * 0.47, ear_y + 0.012),
+            (bx + side * P["ear_w_out"] * 0.67, ear_y - 0.018),
             (ax * 0.30 + bx * 0.70, ay * 0.32 + ear_y * 0.68),
         ])
         img = over(img, inner, 0.72)
 
+        if P["ear_dark"] > 0.001:
+            # Garde pour memoire, mais laisse a zero : une marque sombre sur
+            # un fond sombre ne se lit pas comme une marque, elle efface la
+            # silhouette. Seules les marques CLAIRES portent ici.
+            k = P["ear_dark"]
+            mx = ax + (bx - ax) * k
+            my = ay + (ear_y - ay) * k
+            img = over(img, mask_polygon([
+                (mx - side * P["ear_w_in"] * 0.42, my),
+                (mx + side * P["ear_w_out"] * 0.42, my - 0.020),
+                (ax, ay),
+            ]), 0.06)
+
     # --- head -------------------------------------------------------------
     head = mask_ellipse(head_cx, head_cy, head_rx, head_ry)
-    cheek_l = mask_ellipse(head_cx - head_rx * 0.78, head_cy + head_ry * 0.26,
-                           0.090, 0.110)
-    cheek_r = mask_ellipse(head_cx + head_rx * 0.78, head_cy + head_ry * 0.26,
-                           0.090, 0.110)
+    cheek_l = mask_ellipse(head_cx - head_rx * P["cheek_dx"],
+                           head_cy + head_ry * P["cheek_dy"],
+                           P["cheek_rx"], P["cheek_ry"])
+    cheek_r = mask_ellipse(head_cx + head_rx * P["cheek_dx"],
+                           head_cy + head_ry * P["cheek_dy"],
+                           P["cheek_rx"], P["cheek_ry"])
     body = np.clip(head + cheek_l + cheek_r, 0.0, 1.0)
+
+    if P["taper"] > 0.001:
+        # Une tete de canide n est pas un ovale : c est un coin, large aux
+        # oreilles et resserre vers le nez. On rabote donc les flancs d une
+        # largeur qui decroit avec la hauteur.
+        # L effilement ne mord qu au-dessous du niveau donne : au-dessus la
+        # tete garde toute sa largeur. Rabote des le front, on obtient un
+        # crane etroit au lieu d un coin.
+        y0 = head_cy + head_ry * P["taper_from"]
+        y1 = head_cy + head_ry
+        u = np.clip((Y - y0) / max(y1 - y0, 1e-6), 0.0, 1.0)
+        halfw = head_rx * (1.0 - P["taper"] * u * u)
+        body = body * (np.abs(X - head_cx) <= halfw)
+
+    if P["snout"] > 0.001:
+        # Museau prolonge en triangle : c'est le second signal d'espece
+        # apres les oreilles.
+        tip = head_cy + head_ry * P["muzzle_dy"] + P["snout"]
+        body = np.clip(body + mask_polygon([
+            (head_cx - P["muzzle_rx"] * 1.05, head_cy + head_ry * 0.30),
+            (head_cx + P["muzzle_rx"] * 1.05, head_cy + head_ry * 0.30),
+            (head_cx, tip),
+        ]), 0.0, 1.0)
     img = over(img, body, fur)
 
     # Rim shading: darken the silhouette edge so the head detaches from the
@@ -158,12 +276,33 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
     img = over(img, rim * 0.80, 0.13)
 
     # --- muzzle -----------------------------------------------------------
-    muzzle = mask_ellipse(head_cx, head_cy + head_ry * 0.44, 0.150, 0.098)
-    img = over(img, muzzle * 0.95, 0.68)
+    muzzle = mask_ellipse(head_cx, head_cy + head_ry * P["muzzle_dy"],
+                          P["muzzle_rx"], P["muzzle_ry"])
+    # Le museau se detache par un liseré sombre autant que par sa clarte :
+    # sans lui, une tache claire sur un pelage clair se noie.
+    outer_m = mask_ellipse(head_cx, head_cy + head_ry * P["muzzle_dy"],
+                           P["muzzle_rx"] * 1.30, P["muzzle_ry"] * 1.34)
+    img = over(img, np.clip(outer_m - muzzle, 0.0, 1.0) * 0.90, 0.22)
+    img = over(img, muzzle * 0.97, P["muzzle_val"])
+
+    # --- joues et gorge claires -------------------------------------------
+    if P["bib"] > 0.001:
+        mz_y = head_cy + head_ry * P["muzzle_dy"]
+        for side in (-1, 1):
+            img = over(img, mask_ellipse(head_cx + side * P["muzzle_rx"] * 1.85,
+                                         mz_y - P["muzzle_ry"] * 0.45,
+                                         P["muzzle_rx"] * 0.80,
+                                         P["muzzle_ry"] * 1.15) * 0.92,
+                       P["bib"])
+        # Gorge : prolonge le blanc sous le museau jusqu au menton.
+        img = over(img, mask_ellipse(head_cx, mz_y + P["muzzle_ry"] * 1.25,
+                                     P["muzzle_rx"] * 1.05,
+                                     P["muzzle_ry"] * 0.85) * 0.90,
+                   P["bib"])
 
     # --- eyes -------------------------------------------------------------
-    eye_y = head_cy - head_ry * 0.16
-    eye_dx = head_rx * 0.45
+    eye_y = head_cy + head_ry * P["eye_dy"]
+    eye_dx = head_rx * P["eye_dx"]
     for side in (-1, 1):
         ecx = head_cx + side * eye_dx
         eo = eye_open[0] if side < 0 else eye_open[1]
@@ -173,10 +312,10 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
             img = over(img, lid, 0.16)
             continue
 
-        ery = 0.100 * eo
+        ery = 0.100 * eo * P["eye_scale"]
         # L'oeil s'elargit aussi un peu quand il s'ouvre au-dela du repos,
         # sinon un oeil surpris n'est qu'une fente plus haute.
-        erx = 0.112 * (1.0 + 0.22 * max(0.0, eo - 1.0))
+        erx = 0.112 * P["eye_scale"] * (1.0 + 0.22 * max(0.0, eo - 1.0))
         sclera = mask_ellipse(ecx, eye_y, erx, ery)
         img = over(img, sclera, 1.0)
 
@@ -184,11 +323,26 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
         # stray dark cell.
         pcx = ecx + gaze_x
         pcy = eye_y + gaze_y * 0.55
-        pupil = mask_ellipse(pcx, pcy, 0.042, ery * 0.86)
+        pupil = mask_ellipse(pcx, pcy, 0.042 * P["eye_scale"], ery * 0.86)
         img = over(img, pupil, 0.14)
 
+    # --- sourcils ---------------------------------------------------------
+    if brow > 0.01:
+        for side in (-1, 1):
+            ecx = head_cx + side * eye_dx
+            # De l'exterieur vers l'interieur, en descendant : c'est
+            # l'inclinaison vers le nez qui fait la colere. Le bout interieur
+            # vient presque toucher la paupiere.
+            ox = ecx + side * 0.105
+            ix = ecx - side * 0.098
+            oy = eye_y - 0.185
+            # Le bout interieur descend DANS l oeil : c est l occlusion qui
+            # porte le signal a cette resolution, pas la barre elle-meme.
+            iy = oy + 0.145 * brow
+            img = over(img, mask_line(ox, oy, ix, iy, 0.026), 0.02)
+
     # --- nose and mouth ---------------------------------------------------
-    nose_y = head_cy + head_ry * 0.32
+    nose_y = head_cy + head_ry * (P["muzzle_dy"] - 0.12) + P["snout"] * 0.55
     nose = mask_polygon([(head_cx - 0.050, nose_y - 0.026),
                          (head_cx + 0.050, nose_y - 0.026),
                          (head_cx, nose_y + 0.036)])
@@ -226,7 +380,8 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
     for side in (-1, 1):
         bx = head_cx + side * 0.080
         by = nose_y + 0.008
-        for i, (ang, ln) in enumerate(((-0.32, 0.27), (-0.02, 0.31), (0.26, 0.27))):
+        for i, (ang, ln0) in enumerate(((-0.32, 0.27), (-0.02, 0.31), (0.26, 0.27))):
+            ln = ln0 * P["whisker"]
             a = ang + sway * side * (0.6 + 0.2 * i)
             x2 = bx + side * math.cos(a) * ln
             y2 = by + math.sin(a) * ln
@@ -346,14 +501,33 @@ def build_happy():
     return frames
 
 
+def build_angry():
+    frames = []
+    for f in range(N_EXPR):
+        u = f / float(N_EXPR - 1)
+        # Le sourcil tombe vite, tient, puis se releve : la colere doit se
+        # lire tout de suite et durer, pas monter doucement.
+        if u < 0.18:
+            b = u / 0.18
+        elif u > 0.82:
+            b = (1.0 - u) / 0.18
+        else:
+            b = 1.0
+        # Vibration courte : la tete tremble au lieu de rester figee.
+        shake = math.sin(u * math.pi * 9.0) * 0.011 * b
+        frames.append(to_chars(render_frame(
+            u, 1.0 - 0.38 * b, shake * 0.6, shake, 0.008, brow=b)))
+    return frames
+
+
 # --- emit C ----------------------------------------------------------------
 # Chaque entree : (prefixe des tableaux de lignes, nom exporte, frames).
 def emit(sets):
     os.makedirs(OUT_DIR, exist_ok=True)
 
     h = ['#pragma once', '#include "../ui/asciiart.h"', '',
-         '// Generated by assets/gen_cat_ascii.py - do not hand-edit.',
-         '// Dense 40x30 ASCII animation of a cat face, sized for the built-in',
+         '// Generated by assets/gen_creature.py - do not hand-edit.',
+         '// Dense 40x30 ASCII animation, sized for the built-in',
          '// 6x8 font on a 240x240 panel (one character per cell).',
          '//',
          '// The expression sets are short and meant to be played once, in step',
@@ -363,11 +537,11 @@ def emit(sets):
         h.append('extern const asciiart::Frame %s[];' % name)
         h.append('extern const int %s_COUNT;' % name)
     h += ['', '}', '']
-    with open(os.path.join(OUT_DIR, "cat_ascii.h"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(OUT_DIR, P["out"] + ".h"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(h))
 
-    lines = ['#include "cat_ascii.h"', '',
-             '// Generated by assets/gen_cat_ascii.py - do not hand-edit.', '',
+    lines = ['#include "' + P["out"] + '.h"', '',
+             '// Generated by assets/gen_creature.py - do not hand-edit.', '',
              'namespace {', '']
     for prefix, _name, frames in sets:
         for i, rows in enumerate(frames):
@@ -385,26 +559,37 @@ def emit(sets):
         lines.append('const int %s_COUNT = %d;' % (name, len(frames)))
         lines.append('')
     lines += ['}', '']
-    with open(os.path.join(OUT_DIR, "cat_ascii.cpp"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(OUT_DIR, P["out"] + ".cpp"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
 
 if __name__ == "__main__":
-    sets = [
-        ("CAT", "CAT_ASCII", build_awake()),
-        ("NAP", "CAT_ASCII_SLEEP", build_sleep()),
-        ("WNK", "CAT_WINK", build_wink()),
-        ("SUR", "CAT_SURPRISED", build_surprised()),
-        ("HAP", "CAT_HAPPY", build_happy()),
-    ]
-    emit(sets)
-    for _, name, frames in sets:
-        print("%-16s %2d frames" % (name, len(frames)))
-    print("grille : %dx%d, rampe de %d niveaux" % (COLS, ROWS, len(RAMP)))
-    print()
-    for label, idx, which in (("clin d'oeil, mi-parcours", 6, 2),
-                              ("surprise, mi-parcours", 6, 3)):
-        print("apercu " + label + " :")
-        for r in sets[which][2][idx]:
-            print("  |" + r + "|")
+    # Un argument nomme le profil a generer. Sans argument, tous les profils
+    # connus : sinon une retouche du dessin ne mettrait a jour qu'une espece,
+    # et les autres divergeraient sans qu'on s'en apercoive.
+    wanted = sys.argv[1:] or sorted(PROFILES)
+
+    for name in wanted:
+        set_profile(name)
+        pfx = P["export"]
+        sets = [
+            (P["prefix"], pfx + "_ASCII", build_awake()),
+            ("NAP", pfx + "_ASCII_SLEEP", build_sleep()),
+            ("WNK", pfx + "_WINK", build_wink()),
+            ("SUR", pfx + "_SURPRISED", build_surprised()),
+            ("HAP", pfx + "_HAPPY", build_happy()),
+            ("ANG", pfx + "_ANGRY", build_angry()),
+        ]
+        emit(sets)
+
+        print("=== profil %s ===" % name)
+        for _, ename, frames in sets:
+            print("  %-20s %2d frames" % (ename, len(frames)))
+        print("  -> src/assets/%s.cpp" % P["out"])
         print()
+        print("  apercu au repos :")
+        for r in sets[0][2][0]:
+            print("    |" + r + "|")
+        print()
+
+    print("grille : %dx%d, rampe de %d niveaux" % (COLS, ROWS, len(RAMP)))

@@ -40,6 +40,8 @@ struct Expressions {
     // Joie : partagee par la danse et le balancement, qui different par le
     // mouvement du corps et non par l'expression du visage.
     const Frame* happy;      uint8_t happyCount;
+    // Colere : sourcils abaisses, oeil mordu par la paupiere.
+    const Frame* angry;      uint8_t angryCount;
 };
 
 struct Anim {

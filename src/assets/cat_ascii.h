@@ -20,5 +20,7 @@ extern const asciiart::Frame CAT_SURPRISED[];
 extern const int CAT_SURPRISED_COUNT;
 extern const asciiart::Frame CAT_HAPPY[];
 extern const int CAT_HAPPY_COUNT;
+extern const asciiart::Frame CAT_ANGRY[];
+extern const int CAT_ANGRY_COUNT;
 
 }

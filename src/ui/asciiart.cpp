@@ -1,5 +1,6 @@
 #include "asciiart.h"
 #include "../assets/cat_ascii.h"
+#include "../assets/fox_ascii.h"
 
 // The hand-typed art below is 11 columns wide: at glyphH 0.10 that is
 // textSize 3 on a 240px panel, so 18x24 px cells, 198px across.
@@ -173,6 +174,14 @@ const asciiart::Expressions CAT_EXPR = {
     assets::CAT_WINK,      (uint8_t)assets::CAT_WINK_COUNT,
     assets::CAT_SURPRISED, (uint8_t)assets::CAT_SURPRISED_COUNT,
     assets::CAT_HAPPY,     (uint8_t)assets::CAT_HAPPY_COUNT,
+    assets::CAT_ANGRY,     (uint8_t)assets::CAT_ANGRY_COUNT,
+};
+
+const asciiart::Expressions FOX_EXPR = {
+    assets::FOX_WINK,      (uint8_t)assets::FOX_WINK_COUNT,
+    assets::FOX_SURPRISED, (uint8_t)assets::FOX_SURPRISED_COUNT,
+    assets::FOX_HAPPY,     (uint8_t)assets::FOX_HAPPY_COUNT,
+    assets::FOX_ANGRY,     (uint8_t)assets::FOX_ANGRY_COUNT,
 };
 
 }
@@ -193,6 +202,10 @@ const Anim ANIMS[] = {
     { "fire",   FIRE_FRAMES,   4, FIRE_SLEEP,   2, 130, 0.10f, 1.02f },
     { "heart",  HEART_FRAMES, 10, HEART_SLEEP,  8, 110, 0.10f, 1.02f },
     { "coffee", CUP_FRAMES,    4, CUP_SLEEP,    1, 260, 0.10f, 1.02f },
+    // Second profil du generateur : meme moteur, autres proportions.
+    { "fox",    assets::FOX_ASCII, (uint8_t)assets::FOX_ASCII_COUNT,
+                assets::FOX_ASCII_SLEEP, (uint8_t)assets::FOX_ASCII_SLEEP_COUNT,
+                40, 0.03333f, 1.0f, &FOX_EXPR },
 };
 
 const int ANIM_COUNT = sizeof(ANIMS) / sizeof(ANIMS[0]);

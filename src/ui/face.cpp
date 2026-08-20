@@ -19,7 +19,7 @@
 
 namespace {
 
-enum class Special { None, Wink, Dance, Wobble, Surprised };
+enum class Special { None, Wink, Dance, Wobble, Surprised, Angry };
 
 uint32_t colorBg;
 uint32_t colorFace;
@@ -92,7 +92,22 @@ Special pickSpecial() {
 
 // The big moves need longer on screen than a wink to read as deliberate.
 uint32_t specialDuration(Special s) {
+    if (s == Special::Angry) return 2500;   // une humeur, pas un tic
     return (s == Special::Dance || s == Special::Wobble) ? 1600 : 900;
+}
+
+// Duree et nombre de tours en cours. Une mimique joue une fois par defaut ;
+// le reveil, lui, rejoue la surprise plusieurs fois de suite pour qu'elle
+// dure sans etre ralentie au point de paraitre figee.
+uint32_t specialSpanMs = 900;
+uint8_t specialLoops = 1;
+
+void startSpecial(Special s, uint32_t now, uint32_t spanMs, uint8_t loops) {
+    blinking = false;
+    special = s;
+    specialSpanMs = spanMs ? spanMs : specialDuration(s);
+    specialLoops = loops ? loops : 1;
+    specialUntilMs = now + specialSpanMs;
 }
 
 // The animations a remote control can ask for by name. Keeping the table in
@@ -102,6 +117,7 @@ uint32_t specialDuration(Special s) {
 struct NamedAnim { const char* name; Special kind; };
 const NamedAnim NAMED_ANIMS[] = {
     { "wink",      Special::Wink      },
+    { "angry",     Special::Angry     },
     { "dance",     Special::Dance     },
     { "wobble",    Special::Wobble    },
     { "surprised", Special::Surprised },
@@ -257,7 +273,7 @@ void drawGlitchFace(uint32_t now, bool blink) {
 // ce qui les garde en phase par construction.
 float specialProgress(uint32_t now) {
     if (special == Special::None) return 1.0f;
-    const uint32_t dur = specialDuration(special);
+    const uint32_t dur = specialSpanMs ? specialSpanMs : specialDuration(special);
     if (dur == 0) return 1.0f;
     uint32_t remain = (specialUntilMs > now) ? (specialUntilMs - now) : 0;
     if (remain > dur) remain = dur;
@@ -336,14 +352,18 @@ void drawAsciiArtFace(uint32_t now) {
             case Special::Dance:
             case Special::Wobble:
                 set = ex.happy;    setCount = ex.happyCount;    break;
+            case Special::Angry:
+                set = ex.angry;    setCount = ex.angryCount;    break;
             default:
                 break;
         }
         if (set != nullptr && setCount > 0) {
             frames = set;
             count = setCount;
-            forced = (int)(specialProgress(now) * setCount);
-            if (forced >= (int)setCount) forced = setCount - 1;
+            // specialLoops tours du jeu sur la duree : un seul pour une
+            // mimique breve, plusieurs pour une expression qui doit tenir.
+            const float adv = specialProgress(now) * setCount * specialLoops;
+            forced = (int)adv % (int)setCount;
             if (forced < 0) forced = 0;
         }
     }
@@ -365,12 +385,41 @@ void drawAsciiArtFace(uint32_t now) {
     const ArtMotion m = artMotion(now);
     const float lineH = a.glyphH * (a.lineMul > 0.0f ? a.lineMul : 1.02f);
     const float y0 = 0.5f - (f.rowCount - 1) * lineH * 0.5f + m.dy;
+    // Largeur d'une cellule : la police interne est en 6x8, donc trois quarts
+    // de la hauteur de glyphe.
+    const float cellW = a.glyphH * 0.75f;
+
     for (uint8_t i = 0; i < f.rowCount; i++) {
+        const char* row = f.rows[i];
+
+        // L'art est rond dans un cadre carre : plus de la moitie des cellules
+        // sont des espaces de marge. Les faire traverser au moteur de texte
+        // coute sans rien dessiner. On ne rend que la portion encree, decalee
+        // pour retomber exactement ou elle etait.
+        int first = -1, last = -1;
+        for (int c = 0; row[c] != 0; c++) {
+            if (row[c] != ' ') { if (first < 0) first = c; last = c; }
+        }
+        if (first < 0) continue;   // rangee vide : rien a dessiner du tout
+
+        char buf[80];
+        int len = last - first + 1;
+        if (len > (int)sizeof(buf) - 1) len = (int)sizeof(buf) - 1;
+        memcpy(buf, row + first, len);
+        buf[len] = 0;
+
+        // Le rendu est centre sur la chaine fournie. En retirant des marges
+        // asymetriques, le centre se deplace de la moitie de ce qu'on a
+        // enleve de chaque cote.
+        int cols = 0;
+        while (row[cols] != 0) cols++;
+        const float shift = ((first + last + 1) - cols) * 0.5f * cellW;
+
         // 1 en haut, 0 en bas : l'inclinaison pivote sur la base.
         const float fromBottom =
             (f.rowCount > 1) ? (1.0f - (float)i / (float)(f.rowCount - 1)) : 0.0f;
-        display::drawTextCenteredNorm(0.5f + m.dx + m.lean * fromBottom,
-                                      y0 + i * lineH, a.glyphH, f.rows[i], colorFace);
+        display::drawTextCenteredNorm(0.5f + m.dx + m.lean * fromBottom + shift,
+                                      y0 + i * lineH, a.glyphH, buf, colorFace);
     }
 
     lastEyesText = idleEyes;
@@ -460,9 +509,9 @@ void begin() {
 }
 
 void triggerSpecial() {
-    uint32_t now = millis();
-    special = pickSpecial();
-    specialUntilMs = now + specialDuration(special);
+    const uint32_t now = millis();
+    const Special s = pickSpecial();
+    startSpecial(s, now, specialDuration(s), 1);
 }
 
 bool playAnim(const char* name) {
@@ -471,9 +520,8 @@ bool playAnim(const char* name) {
         if (strcmp(name, NAMED_ANIMS[i].name) != 0) continue;
         // Same interruption rules as a button long-press: whatever is on
         // screen gives way, a blink in flight included.
-        blinking = false;
-        special = NAMED_ANIMS[i].kind;
-        specialUntilMs = millis() + specialDuration(special);
+        const Special s = NAMED_ANIMS[i].kind;
+        startSpecial(s, millis(), specialDuration(s), 1);
         return true;
     }
     return false;
@@ -491,9 +539,8 @@ void notifyInteraction(uint32_t now) {
 
     // Being touched always gets an acknowledgement, and it interrupts
     // whatever was on screen — including sleep.
-    blinking = false;
-    special = pickPleased();
-    specialUntilMs = now + ((special == Special::Dance) ? 1600 : 900);
+    const Special s = pickPleased();
+    startSpecial(s, now, specialDuration(s), 1);
     scheduleNextBlink(now);
 }
 
@@ -510,7 +557,23 @@ void refreshPalette() {
 }
 
 void update(uint32_t now) {
+    const mood::State before = mood::get();
     mood::update(now);
+    const mood::State after = mood::get();
+
+    // Les basculements d'humeur declenchent une reaction, une seule fois au
+    // passage. Sans cette memoire de l'etat precedent, la reaction se
+    // relancerait a chaque image tant que l'humeur dure.
+    if (after != before) {
+        if (after == mood::State::Bored) {
+            // Delaissee assez longtemps pour s'en agacer.
+            startSpecial(Special::Angry, now, specialDuration(Special::Angry), 1);
+        } else if (before == mood::State::Asleep) {
+            // Reveil en sursaut : la surprise rejoue plusieurs fois pour
+            // tenir quelques secondes sans etre ralentie au point de figer.
+            startSpecial(Special::Surprised, now, 3200, 3);
+        }
+    }
 
     // --- state transitions (shared by every skin/layout) ---
     if (special == Special::None) {

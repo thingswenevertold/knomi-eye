@@ -41,7 +41,7 @@ void begin() {
     // The network provisioned over Bluetooth wins: it is the one chosen most
     // recently and on purpose. The networks compiled into secrets.h are only
     // a fallback for a device that has never been provisioned.
-    bool connected = wifiprov::joinStored(8000);
+    bool connected = wifiprov::joinBest(8000);
     if (!connected) connected = tryConnect(WIFI_SSID_1, WIFI_PASSWORD_1, 6000);
     if (!connected) connected = tryConnect(WIFI_SSID_2, WIFI_PASSWORD_2, 6000);
 

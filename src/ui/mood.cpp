@@ -68,6 +68,10 @@ bool pcSignalSeen = false;
 bool pcAway = false;
 }
 
+bool bleLinked = false;
+
+void setBleLinked(bool linked) { bleLinked = linked; }
+
 void setPcAway(bool away) {
     pcSignalSeen = true;
     pcAway = away;
@@ -88,7 +92,9 @@ void update(uint32_t now) {
     // missing network outranks a merely weak one.
     // Le poste absent l'emporte sur tout : c'est un fait rapporte, pas une
     // deduction a partir d'un minuteur.
-    if (pcSignalSeen && pcAway) { state = State::Asleep; return; }
+    // Le poste absent endort — sauf si un telephone est au bout du lien
+    // Bluetooth, auquel cas quelqu'un est bel et bien la.
+    if (pcSignalSeen && pcAway && !bleLinked) { state = State::Asleep; return; }
 
     if (idle < ENGAGED_MS)              state = State::Engaged;
     else if (!radioConnected)           state = State::Lost;

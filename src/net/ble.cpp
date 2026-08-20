@@ -101,8 +101,20 @@ void runCommand(const String& body) {
                            ",\"wifi\":" + wifiprov::statusJson() + "}";
             return;
         }
+        if (cmd == "remember") {
+            // Enregistre sans tenter la connexion : le reseau vise n'est pas
+            // forcement a portee au moment ou on le confie a la carte.
+            String ssid, pass;
+            minijson::getString(body, "ssid", ssid);
+            minijson::getString(body, "pass", pass);
+            wifiprov::remember(ssid, pass);
+            return;
+        }
         if (cmd == "forget") {
-            wifiprov::forget();
+            // Un ssid retire ce reseau precis ; son absence efface la liste.
+            String ssid;
+            minijson::getString(body, "ssid", ssid);
+            wifiprov::forget(ssid);
             return;
         }
         if (cmd == "anim") {

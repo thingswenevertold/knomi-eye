@@ -28,6 +28,9 @@ const SkinDef SKINS[] = {
     { "Hearth",        10,  6,   4,   255,  140, 40,  120, 50,  10, ") (",  "=", false, LAYOUT_ASCIIART, 1 },
     { "Heartbeat",     8,   4,   8,   240,  50,  80,  100, 20,  40, "<3",   "^", false, LAYOUT_ASCIIART, 2 },
     { "Coffee",        18,  14,  10,  225,  200, 165, 110, 85,  60, ") (",  "_", false, LAYOUT_ASCIIART, 3 },
+    // Ajouter uniquement ici : l index de skin est persiste en NVS, donc
+    // reordonner la table reassignerait silencieusement le skin choisi.
+    { "Fox",           14,  8,   4,   255,  150, 60,  120, 60,  20, "/\_/\\", "w", false, LAYOUT_ASCIIART, 4 },
 };
 
 const int SKIN_COUNT = sizeof(SKINS) / sizeof(SKINS[0]);

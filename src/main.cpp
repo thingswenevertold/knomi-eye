@@ -2,6 +2,7 @@
 #include "display/display.h"
 #include "ui/face.h"
 #include "ui/tuning.h"
+#include "ui/mood.h"
 #include "ui/status.h"
 #include "input/button.h"
 #include "ota.h"
@@ -85,6 +86,8 @@ void loop() {
     }
     const uint32_t tDraw1 = micros();
 
+    // Le lien BLE est une presence au meme titre que le poste allume.
+    mood::setBleLinked(ble::isConnected());
     ble::handle(now);
     const uint32_t tBle = micros();
     ota::handle();

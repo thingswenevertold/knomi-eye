@@ -32,6 +32,11 @@ void begin();
 // l'inactivite seule ne ferme plus les yeux : au repos la creature reste
 // eveillee, ce qui est le comportement voulu quand quelqu'un est devant.
 void setPcAway(bool away);
+
+// Un telephone connecte en Bluetooth vaut presence : quelqu'un est la, meme
+// si le poste de travail est verrouille. La creature ne s'endort que lorsque
+// les deux liens sont tombes.
+void setBleLinked(bool linked);
 bool pcDriven();
 
 // Call once per frame. Recomputes the state from elapsed time and radio health.
