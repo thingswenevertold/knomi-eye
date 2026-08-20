@@ -55,8 +55,14 @@ String statusJson() {
     uint32_t freePsram = ESP.getFreePsram();
     int psramPct = totalPsram ? (int)(100.0f * (totalPsram - freePsram) / totalPsram) : 0;
 
-    uint32_t sketchSize = ESP.getSketchSize();
-    uint32_t freeSketch = ESP.getFreeSketchSpace();
+    // Constantes pour un firmware donne, et ruineuses a calculer :
+    // getSketchSize() parcourt l'image en flash avec le cache desactive, ce
+    // qui gele les deux coeurs. Mesure a 324 ms par appel — a cinq appels par
+    // seconde, la boucle de rendu tombait de 30 a 2,8 images par seconde des
+    // qu'un dashboard ou l'app telephone etait ouvert. Autrement dit
+    // l'animation s'effondrait precisement quand on la regardait.
+    static const uint32_t sketchSize = ESP.getSketchSize();
+    static const uint32_t freeSketch = ESP.getFreeSketchSpace();
     uint32_t flashTotal = sketchSize + freeSketch;
     int flashPct = flashTotal ? (int)(100.0f * sketchSize / flashTotal) : 0;
 
@@ -77,6 +83,16 @@ String statusJson() {
     json += "\"mouth\":\"" + jsonEscape(snap.mouth) + "\",";
     json += "\"last_button\":\"" + jsonEscape(diag::getButtonEvent()) + "\",";
     json += "\"screen\":\"" + jsonEscape(diag::getScreen()) + "\",";
+    json += "\"fps\":" + String(diag::getFps(), 1) + ",";
+    json += "\"draw_us\":" + String(diag::getDrawUs()) + ",";
+    json += "\"net_us\":" + String(diag::getNetUs()) + ",";
+    json += "\"total_us\":" + String(diag::getTotalUs()) + ",";
+    json += "\"ble_us\":" + String(diag::getBleUs()) + ",";
+    json += "\"ota_us\":" + String(diag::getOtaUs()) + ",";
+    json += "\"admin_us\":" + String(diag::getAdminUs()) + ",";
+    json += "\"clean_us\":" + String(diag::getCleanUs()) + ",";
+    json += "\"json_us\":" + String(diag::getJsonUs()) + ",";
+    json += "\"send_us\":" + String(diag::getSendUs()) + ",";
     json += "\"mood\":\"" + jsonEscape(face::moodName()) + "\",";
     json += "\"skin\":" + String(face::getSkin());
     json += "}";
@@ -335,6 +351,12 @@ void begin() {
         request->send(200, "application/json", j);
     });
 
+    // Le flux d'etat est derriere le meme Basic Auth que le reste. Sans cela
+    // le WebSocket contournait entierement l'authentification du dashboard :
+    // une connexion sans le moindre identifiant recevait l'IP, l'humeur et
+    // tout le reste. Verifie depuis un poste du reseau.
+    ws.setAuthentication("admin", ADMIN_PASSWORD);
+
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t) {
         // No client->server messages expected; presence handling not needed.
     });
@@ -346,13 +368,24 @@ void begin() {
 void handle(uint32_t nowMs) {
     if (WiFi.status() != WL_CONNECTED) return;
 
+    const uint32_t t0 = micros();
     ws.cleanupClients();
+    const uint32_t t1 = micros();
 
-    if (nowMs - lastBroadcastMs < BROADCAST_INTERVAL_MS) return;
+    if (nowMs - lastBroadcastMs < BROADCAST_INTERVAL_MS) {
+        diag::setAdminSplit(t1 - t0, 0, 0);
+        return;
+    }
     lastBroadcastMs = nowMs;
 
     if (ws.count() > 0) {
-        ws.textAll(statusJson());
+        const String payload = statusJson();
+        const uint32_t t2 = micros();
+        ws.textAll(payload);
+        const uint32_t t3 = micros();
+        diag::setAdminSplit(t1 - t0, t2 - t1, t3 - t2);
+    } else {
+        diag::setAdminSplit(t1 - t0, 0, 0);
     }
 }
 
