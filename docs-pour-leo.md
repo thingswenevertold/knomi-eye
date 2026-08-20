@@ -215,4 +215,6 @@ la section 1.
 Le reste — BLE, provisionnement WiFi, tuning, humeurs — te manque et n'est
 spécifique à aucun personnage. À discuter quand ça t'arrange.
 
-Rien n'a été poussé chez toi.
+La PR [#1](https://github.com/thingswenevertold/knomi-eye/pull/1) est ouverte
+avec les deux correctifs de la section 1 — un fichier, +14 −2, rebasée sur ton
+dernier `master` et recompilée. Rien d'autre n'a été poussé chez toi.
