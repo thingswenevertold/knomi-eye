@@ -1,5 +1,9 @@
 #pragma once
 
+// For PROGMEM. This header is included before <Arduino.h> in admin_server.cpp,
+// so it cannot rely on a translation unit having pulled the macro in already.
+#include <Arduino.h>
+
 // The phone app, served at /play.
 //
 // Kept in its own header, as one raw string literal, because the admin
