@@ -22,7 +22,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +31,11 @@ CREATURES = os.path.join(ROOT, "assets", "creatures")
 PORT = 8010
 
 PY = sys.executable
+
+# Une seule compilation a la fois : deux pio simultanes se marcheraient
+# dessus. Mais le REFUS est immediat — l interface reste vivante, elle ne
+# fait pas la queue derriere un build.
+BUILD_LOCK = threading.Lock()
 
 
 def run(cmd, cwd=ROOT, timeout=900):
@@ -140,12 +145,26 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.exists(path):
             self._send(400, {"error": "manifeste absent : " + name})
             return
-        code, out = run([PY, os.path.join("assets", "gen_from_image.py"), path])
+        if not BUILD_LOCK.acquire(blocking=False):
+            self._send(200, {"ok": False,
+                             "log": "Une generation ou un envoi tourne deja — attends la fin."})
+            return
+        try:
+            code, out = run([PY, os.path.join("assets", "gen_from_image.py"), path])
+        finally:
+            BUILD_LOCK.release()
         self._send(200, {"ok": code == 0, "log": out[-6000:]})
 
     def _deploy(self):
-        code, out = run([PY, "-m", "platformio", "run",
-                         "-e", "esp32dev-ota", "-t", "upload"])
+        if not BUILD_LOCK.acquire(blocking=False):
+            self._send(200, {"ok": False,
+                             "log": "Une generation ou un envoi tourne deja — attends la fin."})
+            return
+        try:
+            code, out = run([PY, "-m", "platformio", "run",
+                             "-e", "esp32dev-ota", "-t", "upload"])
+        finally:
+            BUILD_LOCK.release()
         # La sortie de PlatformIO est enorme ; on ne garde que ce qui informe.
         keep = [l for l in out.splitlines()
                 if any(k in l for k in ("Result:", "Success", "SUCCESS", "FAILED",
@@ -156,7 +175,9 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.makedirs(CREATURES, exist_ok=True)
-    srv = HTTPServer(("127.0.0.1", PORT), Handler)
+    # Multi-fils : un envoi dure plus d une minute, et un serveur mono-fil
+    # ne servait plus RIEN pendant ce temps — ni la page, ni l enregistrement.
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = "http://localhost:%d/" % PORT
     print("Studio creature : %s" % url)
     print("Ctrl+C pour arreter.")
