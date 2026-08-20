@@ -38,4 +38,10 @@ const char* hostname() { return hostnameBuf; }
 const char* adminPassword() { return adminPwBuf; }
 const char* otaPassword() { return otaPwBuf; }
 
+void resetAndReboot() {
+    prefs.clear();
+    delay(200);
+    ESP.restart();
+}
+
 }

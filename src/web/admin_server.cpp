@@ -214,6 +214,15 @@ void begin() {
         request->send(200, "application/json", statusJson());
     });
 
+    // Deliberate rename: edit OTA_HOSTNAME/passwords in secrets.h, flash,
+    // then hit this once to drop the sticky NVS copies and adopt the new
+    // values on reboot. See identity.h for why this needs to be explicit.
+    server.on("/api/reset-identity", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        request->send(200, "text/plain", "resetting, rebooting now");
+        identity::resetAndReboot();
+    });
+
     server.on("/api/skin", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (!requireAuth(request)) return;
         if (!request->hasParam("index")) {

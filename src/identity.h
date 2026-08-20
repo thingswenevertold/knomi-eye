@@ -16,4 +16,10 @@ const char* hostname();
 const char* adminPassword();
 const char* otaPassword();
 
+// Clears the sticky NVS copies and reboots, so the next boot re-seeds from
+// whatever's currently in secrets.h. Use this to deliberately rename a
+// device (change OTA_HOSTNAME/passwords in secrets.h, flash, then call
+// this once via the dashboard's /api/reset-identity).
+void resetAndReboot();
+
 }
