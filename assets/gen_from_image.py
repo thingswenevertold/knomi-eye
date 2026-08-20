@@ -41,6 +41,14 @@ RAMP = " .`',:;!~+=*xo#%8@"
 
 N_IDLE, N_EXPR = 40, 16
 
+# Valeurs par defaut du rendu. L editeur de zones expose les memes noms, et
+# les embarque dans le manifeste : regler dans le navigateur suffit.
+DEFAULT_RENDER = {
+    "floor": 0.24, "amp": 0.42, "levels": 5,
+    "eyeRx": 0.62, "eyeRy": 1.25,
+    "contrast": 1.00, "bright": 0.00, "blur": 0.75,
+}
+
 
 def load(manifest_path):
     with open(manifest_path, encoding="utf-8") as fh:
@@ -50,7 +58,11 @@ def load(manifest_path):
     if not os.path.exists(img_path):
         raise SystemExit("image introuvable : %s" % img_path)
     zones = {z["kind"]: z["points"] for z in man["zones"]}
-    return Image.open(img_path).convert("L"), zones
+    # Les reglages viennent de l editeur quand il en a mis : ce qu on voit
+    # dans l apercu est alors exactement ce qui est produit ici.
+    render = dict(DEFAULT_RENDER)
+    render.update(man.get("render", {}))
+    return Image.open(img_path).convert("L"), zones, render
 
 
 def poly_mask(points, w, h):
@@ -156,13 +168,17 @@ def ellipse_mask(cx, cy, rx, ry, w, h):
     return np.asarray(im, dtype=np.float32) / 255.0
 
 
-def base_image(src, zones):
+def base_image(src, zones, render=None):
     """Compose la creature : photo posterisee, traits redessines.
 
     Le manifeste n'est pas isotrope — l'editeur normalise x sur la largeur
     et y sur la hauteur — donc tout passe par les pixels avant d'atteindre
     le panneau, sinon une tete carree ressort etiree.
     """
+    R = dict(DEFAULT_RENDER)
+    if render:
+        R.update(render)
+
     sil = zones.get("silhouette")
     if not sil:
         raise SystemExit("le manifeste n'a pas de silhouette")
@@ -197,7 +213,7 @@ def base_image(src, zones):
     crop = src.crop((int(box[0]), int(box[1]), int(box[2]), int(box[3])))
     crop = crop.resize((S_W, S_H), Image.LANCZOS)
 
-    photo = np.asarray(crop.filter(ImageFilter.GaussianBlur(radius=CELL_W * 0.75)),
+    photo = np.asarray(crop.filter(ImageFilter.GaussianBlur(radius=CELL_W * R["blur"])),
                        dtype=np.float32) / 255.0
     # Aplatir l'eclairage, sinon la conversion lit le degrade d'illumination
     # plutot que l'animal.
@@ -214,12 +230,13 @@ def base_image(src, zones):
 
     # Quatre tons suffisent a decrire une tete ; les variations plus fines
     # ne survivaient pas a la conversion et n'ajoutaient que du bruit.
-    LEVELS = 5
-    photo = np.round(photo * (LEVELS - 1)) / (LEVELS - 1)
+    photo = np.clip((photo - 0.5) * R["contrast"] + 0.5 + R["bright"], 0.0, 1.0)
+    L = max(2, int(round(R["levels"])))
+    photo = np.round(photo * (L - 1)) / (L - 1)
 
     # Pose basse et resserree : la plupart des cellules doivent rester
     # creuses, sinon le panneau bave en une masse blanche.
-    img = (0.24 + 0.42 * photo) * body
+    img = (R["floor"] + R["amp"] * photo) * body
 
     # Liseré sombre au bord, pour que la silhouette morde sur le fond.
     inner = poly_mask([[0.5 + (p[0] - 0.5) * 0.94, 0.5 + (p[1] - 0.5) * 0.94]
@@ -247,8 +264,8 @@ def base_image(src, zones):
             continue
         ex0, ey0, ex1, ey1 = bbox(mapped[k_eye])
         ecx, ecy = (ex0 + ex1) / 2, (ey0 + ey1) / 2
-        rx = max((ex1 - ex0) * 0.62, 0.070)
-        ry = max((ey1 - ey0) * 1.25, 0.070)
+        rx = max((ex1 - ex0) * R["eyeRx"], 0.070)
+        ry = max((ey1 - ey0) * R["eyeRy"], 0.070)
 
         white = ellipse_mask(ecx, ecy, rx, ry, S_W, S_H)
         img = img * (1.0 - white) + 1.0 * white
@@ -281,10 +298,35 @@ def ease(u):
     return math.sin(u * math.pi)
 
 
+def draw_lid(img, points, w, h):
+    """Trace une paupiere fermee, en arc.
+
+    Ecraser une zone d oeil la fait disparaitre : le vide se comble avec la
+    fourrure des bords et il ne reste rien. Un oeil ferme doit se voir, donc
+    on pose un arc sombre a sa place.
+    """
+    x0, y0, x1, y1 = bbox(points)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    rx, ry = (x1 - x0) * 0.44, (y1 - y0) * 0.30
+    lower = ellipse_mask(cx, cy, rx, ry, w, h)
+    upper = ellipse_mask(cx, cy - ry * 0.62, rx, ry, w, h)
+    arc = np.clip(lower - upper, 0.0, 1.0)
+    return img * (1.0 - arc) + 0.05 * arc
+
+
+def close_eye(img, mapped, key, factor, w, h):
+    """Ecrase l oeil, et pose une paupiere des qu il est presque clos."""
+    if key not in mapped:
+        return img
+    img = squash_zone(img, mapped[key], max(factor, 0.05), w, h)
+    if factor < 0.30:
+        img = draw_lid(img, mapped[key], w, h)
+    return img
+
+
 def both_eyes(img, mapped, factor):
     for k in ("eye_left", "eye_right"):
-        if k in mapped:
-            img = squash_zone(img, mapped[k], factor, S_W, S_H)
+        img = close_eye(img, mapped, k, factor, S_W, S_H)
     return img
 
 
@@ -308,8 +350,7 @@ def build_sets(base, mapped):
     for f in range(N_EXPR):
         u = f / float(N_EXPR - 1)
         img = base
-        if "eye_right" in mapped:
-            img = squash_zone(img, mapped["eye_right"], 1.0 - 0.90 * ease(u), S_W, S_H)
+        img = close_eye(img, mapped, "eye_right", 1.0 - 0.92 * ease(u), S_W, S_H)
         wink.append(to_chars(to_cells(img)))
     sets["WINK"] = wink
 
@@ -392,8 +433,8 @@ if __name__ == "__main__":
     if not args:
         raise SystemExit(__doc__)
 
-    src, zones = load(args[0])
-    base, mapped = base_image(src, zones)
+    src, zones, render = load(args[0])
+    base, mapped = base_image(src, zones, render)
     name = os.path.basename(args[0]).split(".")[0] + "photo"
 
     print("image : %dx%d" % src.size)

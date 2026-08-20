@@ -12,10 +12,11 @@
     font-family: ui-monospace, Consolas, monospace; font-size: 13px;
   }
   h1 { font-size: 17px; letter-spacing: .05em; margin: 0 0 4px; }
-  .sub { color: #c8763a; margin: 0 0 18px; line-height: 1.5; max-width: 62ch; }
+  .sub { color: #c8763a; margin: 0 0 18px; line-height: 1.5; max-width: 66ch; }
   .wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-  .stage { position: relative; border: 1px solid #3a2410; background: #14100c; }
-  canvas { display: block; cursor: crosshair; }
+  .stage { border: 1px solid #3a2410; background: #14100c; }
+  canvas { display: block; }
+  #cv { cursor: crosshair; }
   .side { width: 300px; flex: none; }
   button {
     background: #221708; border: 1px solid #3a2410; color: #c8763a;
@@ -27,6 +28,7 @@
   button.primary { background: #ff5a00; color: #0c0b0a; border-color: #ff5a00; }
   h2 { font-size: 12px; letter-spacing: .08em; color: #c8763a;
        margin: 18px 0 8px; border-bottom: 1px solid #3a2410; padding-bottom: 5px; }
+  h2:first-child { margin-top: 0; }
   ul { list-style: none; padding: 0; margin: 0; }
   li { display: flex; justify-content: space-between; align-items: center;
        padding: 5px 8px; border-bottom: 1px solid #241a10; color: #c8763a; }
@@ -37,6 +39,12 @@
   input[type=file] { color: #c8763a; font-family: inherit; font-size: 12px;
                      width: 100%; margin-bottom: 10px; }
   code { color: #ff5a00; }
+  .sl { margin-bottom: 11px; }
+  .sl .lbl { display: flex; justify-content: space-between; font-size: 12px;
+             color: #c8763a; margin-bottom: 3px; }
+  .sl .lbl b { color: #ff5a00; font-weight: normal; }
+  input[type=range] { width: 100%; accent-color: #ff5a00; }
+  .cols { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -44,21 +52,25 @@
 <h1>Détoureur de créature</h1>
 <p class="sub">
   Charge une image, détoure la silhouette, puis marque les zones qui devront
-  bouger. Le manifeste exporté décrit <b>où</b> sont les parties ; le
-  générateur s'occupe de <b>comment</b> elles se déforment.
+  bouger. L'aperçu à droite montre ce que le panneau affichera réellement —
+  40 colonnes sur 30 rangées, la vraie résolution caractère de la carte.
 </p>
 
-<div class="wrap">
+<div class="cols">
   <div>
     <input type="file" id="file" accept="image/*">
-    <div class="stage">
-      <canvas id="cv" width="620" height="620"></canvas>
-    </div>
+    <div class="stage"><canvas id="cv" width="520" height="520"></canvas></div>
     <p class="hint">
-      Clic pour poser un point &middot; <b>double-clic</b> ou
-      <b>Entrée</b> pour fermer la forme &middot; <b>Échap</b> pour annuler
-      la forme en cours &middot; <b>Z</b> pour retirer le dernier point.
+      Clic pour poser un point &middot; <b>double-clic</b> ou <b>Entrée</b>
+      pour fermer &middot; <b>Échap</b> annule la forme &middot; <b>Z</b>
+      retire le dernier point.
     </p>
+  </div>
+
+  <div>
+    <h2>APERÇU PANNEAU</h2>
+    <div class="stage"><canvas id="pv" width="360" height="360"></canvas></div>
+    <p class="hint" id="pv-note">Trace au moins la silhouette.</p>
   </div>
 
   <div class="side">
@@ -68,20 +80,21 @@
     <h2>ZONES POSÉES</h2>
     <ul id="list"><li style="color:#8a5a30">aucune</li></ul>
 
+    <h2>RENDU</h2>
+    <div id="sliders"></div>
+    <button class="wide" id="reset-r">VALEURS PAR DÉFAUT</button>
+
     <h2>EXPORT</h2>
     <button class="wide primary" id="save">TÉLÉCHARGER LE MANIFESTE</button>
-    <button class="wide" id="clear">TOUT EFFACER</button>
+    <button class="wide" id="clear">EFFACER LES ZONES</button>
     <p class="hint">
-      Enregistre le <code>.json</code> à côté de l'image, dans
-      <code>assets/</code>. Les coordonnées sont normalisées entre 0 et 1,
-      donc redimensionner l'image ne casse rien.
+      Le manifeste embarque aussi tes réglages de rendu, donc le générateur
+      produira exactement ce que tu vois ici.
     </p>
   </div>
 </div>
 
 <script>
-// Les parties que le generateur sait animer. L'ordre est celui du dessin :
-// la silhouette d'abord, puisque tout le reste vit dedans.
 const KINDS = [
   { id: 'silhouette', label: 'SILHOUETTE', color: '#ff5a00' },
   { id: 'ear_left',   label: 'OREILLE G',  color: '#ffb066' },
@@ -94,114 +107,281 @@ const KINDS = [
   { id: 'nose',       label: 'NEZ',        color: '#ffd166' },
 ];
 
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d');
+// Chaque reglage porte le nom que le generateur Python lira dans le
+// manifeste : ce qu'on regle ici est exactement ce qui sera produit.
+const SETTINGS = [
+  { id: 'floor',   label: 'PLANCHER',    min: 0,   max: 60,  def: 24, div: 100,
+    help: 'niveau du plus sombre' },
+  { id: 'amp',     label: 'AMPLITUDE',   min: 10,  max: 80,  def: 42, div: 100,
+    help: 'ecart entre sombre et clair' },
+  { id: 'levels',  label: 'TONS',        min: 2,   max: 10,  def: 5,  div: 1,
+    help: 'posterisation' },
+  { id: 'eyeRx',   label: 'ŒIL LARGEUR', min: 30,  max: 140, def: 62, div: 100 },
+  { id: 'eyeRy',   label: 'ŒIL HAUTEUR', min: 40,  max: 220, def: 125, div: 100 },
+  { id: 'contrast',label: 'CONTRASTE',   min: 40,  max: 220, def: 100, div: 100 },
+  { id: 'bright',  label: 'LUMINOSITÉ',  min: -40, max: 40,  def: 0,  div: 100 },
+  { id: 'blur',    label: 'FLOU',        min: 0,   max: 250, def: 75, div: 100 },
+];
+
+const RAMP = " .`',:;!~+=*xo#%8@";
+const COLS = 40, ROWS = 30, CW = 6, CH = 8;      // 240x240 = une cellule 6x8
+const FILL = 0.98;
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const pv = document.getElementById('pv'), pctx = pv.getContext('2d');
 const $ = id => document.getElementById(id);
 
-let img = null;
-let fit = { x: 0, y: 0, w: 0, h: 0 };   // ou l'image est posee dans le canvas
-let zones = [];                          // { kind, pts: [[x,y],...] } normalises
-let current = [];                        // points de la forme en cours, en pixels
-let kind = 'silhouette';
+let img = null, imageName = 'creature.png';
+let fit = { x: 0, y: 0, w: 0, h: 0 };
+let zones = [], current = [], kind = 'silhouette';
+const cfg = {};
+SETTINGS.forEach(s => { cfg[s.id] = s.def / s.div; });
 
-// --- outils ---------------------------------------------------------------
-function kindOf(id) { return KINDS.find(k => k.id === id); }
+const kindOf = id => KINDS.find(k => k.id === id);
+const toNorm = (px, py) => [(px - fit.x) / fit.w, (py - fit.y) / fit.h];
+const toPix  = (nx, ny) => [fit.x + nx * fit.w, fit.y + ny * fit.h];
+const zoneOf = id => { const z = zones.find(z => z.kind === id); return z ? z.pts : null; };
 
-function buildKindButtons() {
-  const box = $('kinds');
-  box.innerHTML = '';
+// --- interface ------------------------------------------------------------
+function buildKinds() {
+  const box = $('kinds'); box.innerHTML = '';
   KINDS.forEach(k => {
     const b = document.createElement('button');
-    b.textContent = k.label;
-    b.dataset.id = k.id;
-    b.style.borderColor = k.color;
+    b.textContent = k.label; b.dataset.id = k.id; b.style.borderColor = k.color;
     b.onclick = () => { kind = k.id; current = []; refresh(); };
     box.appendChild(b);
   });
 }
 
-function toNorm(px, py) {
-  return [(px - fit.x) / fit.w, (py - fit.y) / fit.h];
-}
-function toPix(nx, ny) {
-  return [fit.x + nx * fit.w, fit.y + ny * fit.h];
+function buildSliders() {
+  const box = $('sliders'); box.innerHTML = '';
+  SETTINGS.forEach(s => {
+    const d = document.createElement('div'); d.className = 'sl';
+    d.innerHTML = '<div class="lbl"><span>' + s.label +
+                  '</span><b id="v-' + s.id + '"></b></div>' +
+                  '<input type="range" id="s-' + s.id + '" min="' + s.min +
+                  '" max="' + s.max + '" value="' + s.def + '">';
+    box.appendChild(d);
+    const inp = d.querySelector('input');
+    inp.addEventListener('input', () => {
+      cfg[s.id] = (+inp.value) / s.div;
+      $('v-' + s.id).textContent = (s.div === 1 ? cfg[s.id] : cfg[s.id].toFixed(2));
+      preview();
+    });
+    $('v-' + s.id).textContent = (s.div === 1 ? cfg[s.id] : cfg[s.id].toFixed(2));
+  });
 }
 
-// --- rendu ----------------------------------------------------------------
 function drawPoly(pts, color, closed, fill) {
   if (!pts.length) return;
   ctx.beginPath();
   pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
   if (closed) ctx.closePath();
   if (fill) { ctx.fillStyle = color + '33'; ctx.fill(); }
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
   ctx.fillStyle = color;
-  pts.forEach(p => { ctx.fillRect(p[0] - 3, p[1] - 3, 6, 6); });
+  pts.forEach(p => ctx.fillRect(p[0] - 3, p[1] - 3, 6, 6));
 }
 
 function refresh() {
-  ctx.fillStyle = '#14100c';
-  ctx.fillRect(0, 0, cv.width, cv.height);
-
+  ctx.fillStyle = '#14100c'; ctx.fillRect(0, 0, cv.width, cv.height);
   if (img) ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
   else {
-    ctx.fillStyle = '#8a5a30';
-    ctx.font = '13px ui-monospace, monospace';
+    ctx.fillStyle = '#8a5a30'; ctx.font = '13px ui-monospace, monospace';
     ctx.fillText('Charge une image pour commencer.', 20, 30);
   }
-
-  zones.forEach(z => {
-    drawPoly(z.pts.map(p => toPix(p[0], p[1])), kindOf(z.kind).color, true, true);
-  });
+  zones.forEach(z => drawPoly(z.pts.map(p => toPix(p[0], p[1])),
+                              kindOf(z.kind).color, true, true));
   drawPoly(current, kindOf(kind).color, false, false);
 
-  // Etat des boutons et de la liste
-  document.querySelectorAll('#kinds button').forEach(b => {
-    b.classList.toggle('on', b.dataset.id === kind);
+  document.querySelectorAll('#kinds button').forEach(b =>
+    b.classList.toggle('on', b.dataset.id === kind));
+
+  const ul = $('list'); ul.innerHTML = '';
+  if (!zones.length) ul.innerHTML = '<li style="color:#8a5a30">aucune</li>';
+  else zones.forEach((z, i) => {
+    const li = document.createElement('li'), k = kindOf(z.kind);
+    li.innerHTML = '<span style="color:' + k.color + '">' + k.label +
+                   '</span> <b>' + z.pts.length + ' pts</b>';
+    const del = document.createElement('button');
+    del.textContent = 'X';
+    del.onclick = () => { zones.splice(i, 1); refresh(); };
+    li.appendChild(del); ul.appendChild(li);
   });
 
-  const ul = $('list');
-  ul.innerHTML = '';
-  if (!zones.length) {
-    ul.innerHTML = '<li style="color:#8a5a30">aucune</li>';
-  } else {
-    zones.forEach((z, i) => {
-      const li = document.createElement('li');
-      const k = kindOf(z.kind);
-      li.innerHTML = '<span style="color:' + k.color + '">' + k.label +
-                     '</span> <b>' + z.pts.length + ' pts</b>';
-      const del = document.createElement('button');
-      del.textContent = 'X';
-      del.onclick = () => { zones.splice(i, 1); refresh(); };
-      li.appendChild(del);
-      ul.appendChild(li);
-    });
-  }
+  preview();
 }
 
-// --- fermeture d'une forme ------------------------------------------------
-function closeShape() {
-  if (current.length < 3) { current = []; refresh(); return; }
-  // Chaque partie est unique : on n a qu une oreille gauche. Redessiner
-  // remplace donc, au lieu d empiler des essais qu on oublie d effacer et
-  // que le generateur ne saurait departager.
-  zones = zones.filter(z => z.kind !== kind);
-  zones.push({ kind: kind, pts: current.map(p => toNorm(p[0], p[1])) });
-  current = [];
-  refresh();
+// --- aperçu : le meme pipeline que gen_from_image.py ----------------------
+function offscreen(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  return c;
+}
+
+// Masque d'un polygone, en coordonnees du panneau 240x240.
+function maskOf(pts, shrink) {
+  const c = offscreen(240, 240), g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.beginPath();
+  pts.forEach((p, i) => {
+    let x = p[0], y = p[1];
+    if (shrink) { x = 0.5 + (x - 0.5) * shrink; y = 0.5 + (y - 0.5) * shrink; }
+    i ? g.lineTo(x * 240, y * 240) : g.moveTo(x * 240, y * 240);
+  });
+  g.closePath(); g.fill();
+  const d = g.getImageData(0, 0, 240, 240).data;
+  const m = new Float32Array(240 * 240);
+  for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] / 255;
+  return m;
+}
+
+function ellipseMask(cx, cy, rx, ry) {
+  const c = offscreen(240, 240), g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.beginPath();
+  g.ellipse(cx * 240, cy * 240, rx * 240, ry * 240, 0, 0, Math.PI * 2);
+  g.fill();
+  const d = g.getImageData(0, 0, 240, 240).data;
+  const m = new Float32Array(240 * 240);
+  for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] / 255;
+  return m;
+}
+
+function bboxOf(pts) {
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+function preview() {
+  pctx.fillStyle = '#000'; pctx.fillRect(0, 0, pv.width, pv.height);
+  const sil = zoneOf('silhouette');
+  if (!img || !sil || sil.length < 3) {
+    $('pv-note').textContent = 'Trace au moins la silhouette.';
+    return;
+  }
+  $('pv-note').textContent = 'Ce que le panneau affichera. 40 x 30 cellules.';
+
+  // Cadrage isotrope : le manifeste normalise x sur la largeur et y sur la
+  // hauteur, donc tout passe par les pixels avant d'atteindre le panneau.
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const px = sil.map(p => [p[0] * W, p[1] * H]);
+  const [bx0, by0, bx1, by1] = bboxOf(px);
+  const bw = bx1 - bx0, bh = by1 - by0;
+  const field = Math.hypot(bw, bh) / FILL;
+  const ox = (bx0 + bx1) / 2 - field / 2, oy = (by0 + by1) / 2 - field / 2;
+  const place = pts => pts.map(p => [(p[0] * W - ox) / field, (p[1] * H - oy) / field]);
+
+  // Photo recadree, floutee, puis divisee par une version tres floue pour
+  // retirer le degrade d'illumination.
+  const a = offscreen(240, 240), ga = a.getContext('2d');
+  ga.filter = 'blur(' + cfg.blur.toFixed(2) + 'px)';
+  ga.drawImage(img, ox, oy, field, field, 0, 0, 240, 240);
+  const b = offscreen(240, 240), gb = b.getContext('2d');
+  gb.filter = 'blur(20px)';
+  gb.drawImage(img, ox, oy, field, field, 0, 0, 240, 240);
+
+  const da = ga.getImageData(0, 0, 240, 240).data;
+  const db = gb.getImageData(0, 0, 240, 240).data;
+  const body = maskOf(place(sil));
+
+  const lum = new Float32Array(240 * 240);
+  let lo = 1, hi = 0;
+  for (let i = 0; i < lum.length; i++) {
+    const p = (da[i * 4] * 0.299 + da[i * 4 + 1] * 0.587 + da[i * 4 + 2] * 0.114) / 255;
+    const f = (db[i * 4] * 0.299 + db[i * 4 + 1] * 0.587 + db[i * 4 + 2] * 0.114) / 255;
+    let v = p / Math.max(f, 0.06);
+    lum[i] = v;
+    if (body[i] > 0.5) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  }
+  const span = Math.max(hi - lo, 0.02);
+
+  const out = new Float32Array(240 * 240);
+  const L = Math.max(2, Math.round(cfg.levels));
+  for (let i = 0; i < out.length; i++) {
+    if (body[i] < 0.5) { out[i] = 0; continue; }
+    let v = (lum[i] - lo) / span;
+    v = (v - 0.5) * cfg.contrast + 0.5 + cfg.bright;
+    v = Math.min(1, Math.max(0, v));
+    v = Math.round(v * (L - 1)) / (L - 1);
+    out[i] = cfg.floor + cfg.amp * v;
+  }
+
+  // Liseré sombre, pour que la silhouette morde sur le fond.
+  const inner = maskOf(place(sil), 0.94);
+  for (let i = 0; i < out.length; i++) out[i] *= (1 - Math.max(0, body[i] - inner[i]));
+
+  const paint = (m, val, strength) => {
+    for (let i = 0; i < out.length; i++) {
+      const k = m[i] * (strength === undefined ? 1 : strength) * (body[i] > 0.5 ? 1 : 0);
+      if (k > 0) out[i] = out[i] * (1 - k) + val * k;
+    }
+  };
+
+  // Museau clair autour du nez et de la bouche.
+  const snout = [].concat(zoneOf('nose') || [], zoneOf('mouth') || []);
+  if (snout.length) {
+    const s = place(snout), [sx0, sy0, sx1, sy1] = bboxOf(s);
+    paint(ellipseMask((sx0 + sx1) / 2, (sy0 + sy1) / 2,
+                      (sx1 - sx0) * 0.90, (sy1 - sy0) * 0.80), 0.60, 0.85);
+  }
+
+  // Yeux, agrandis : a cette resolution un oeil fidele ne ferait qu'une
+  // cellule et demie.
+  ['eye_left', 'eye_right'].forEach(k => {
+    const z = zoneOf(k); if (!z) return;
+    const e = place(z), [ex0, ey0, ex1, ey1] = bboxOf(e);
+    const ecx = (ex0 + ex1) / 2, ecy = (ey0 + ey1) / 2;
+    const rx = Math.max((ex1 - ex0) * cfg.eyeRx, 0.070);
+    const ry = Math.max((ey1 - ey0) * cfg.eyeRy, 0.070);
+    paint(ellipseMask(ecx, ecy, rx, ry), 1.0);
+    paint(ellipseMask(ecx, ecy + ry * 0.08, rx * 0.50, ry * 0.62), 0.04);
+    paint(ellipseMask(ecx - rx * 0.34, ecy - ry * 0.34, rx * 0.18, ry * 0.20), 1.0);
+  });
+
+  const nz = zoneOf('nose');
+  if (nz) {
+    const n = place(nz), [nx0, ny0, nx1, ny1] = bboxOf(n);
+    paint(ellipseMask((nx0 + nx1) / 2, (ny0 + ny1) / 2,
+                      (nx1 - nx0) * 0.34, (ny1 - ny0) * 0.28), 0.03);
+  }
+
+  // Moyenne par cellule, puis rampe.
+  const cell = 360 / COLS;
+  pctx.font = (cell * 1.15).toFixed(1) + 'px ui-monospace, Consolas, monospace';
+  pctx.fillStyle = '#ffa55a';
+  pctx.textBaseline = 'top';
+  const rowH = pv.height / ROWS;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const dx = (c + 0.5) / COLS - 0.5, dy = (r + 0.5) / ROWS - 0.5;
+      if (dx * dx + dy * dy > 0.25) continue;
+      let acc = 0;
+      for (let y = 0; y < CH; y++)
+        for (let x = 0; x < CW; x++)
+          acc += out[(r * CH + y) * 240 + (c * CW + x)];
+      let v = acc / (CW * CH);
+      v = Math.min(1, Math.max(0, (v - 0.06) / 0.86));
+      const idx = Math.round(Math.pow(v, 0.80) * (RAMP.length - 1));
+      const ch = RAMP[Math.min(RAMP.length - 1, Math.max(0, idx))];
+      if (ch !== ' ') pctx.fillText(ch, c * (pv.width / COLS), r * rowH - rowH * 0.15);
+    }
+  }
 }
 
 // --- interactions ---------------------------------------------------------
+function closeShape() {
+  if (current.length < 3) { current = []; refresh(); return; }
+  // Chaque partie est unique : redessiner remplace, au lieu d'empiler des
+  // essais qu'on oublie d'effacer et que le generateur ne saurait departager.
+  zones = zones.filter(z => z.kind !== kind);
+  zones.push({ kind: kind, pts: current.map(p => toNorm(p[0], p[1])) });
+  current = []; refresh();
+}
+
 cv.addEventListener('click', e => {
   if (!img) return;
   const r = cv.getBoundingClientRect();
-  current.push([e.clientX - r.left, e.clientY - r.top]);
-  refresh();
+  current.push([e.clientX - r.left, e.clientY - r.top]); refresh();
 });
 cv.addEventListener('dblclick', e => { e.preventDefault(); closeShape(); });
-
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter') closeShape();
   else if (e.key === 'Escape') { current = []; refresh(); }
@@ -209,39 +389,38 @@ document.addEventListener('keydown', e => {
 });
 
 $('file').addEventListener('change', e => {
-  const f = e.target.files[0];
-  if (!f) return;
+  const f = e.target.files[0]; if (!f) return;
   const im = new Image();
   im.onload = () => {
     img = im;
-    // Contenir l'image dans le canvas sans la deformer : les coordonnees
-    // normalisees s'appuient dessus.
     const s = Math.min(cv.width / im.width, cv.height / im.height);
-    fit.w = im.width * s;
-    fit.h = im.height * s;
-    fit.x = (cv.width - fit.w) / 2;
-    fit.y = (cv.height - fit.h) / 2;
-    zones = [];
-    current = [];
-    imageName = f.name;
+    fit.w = im.width * s; fit.h = im.height * s;
+    fit.x = (cv.width - fit.w) / 2; fit.y = (cv.height - fit.h) / 2;
+    zones = []; current = []; imageName = f.name;
     refresh();
   };
   im.src = URL.createObjectURL(f);
 });
 
-let imageName = 'creature.png';
-
 $('clear').addEventListener('click', () => { zones = []; current = []; refresh(); });
+$('reset-r').addEventListener('click', () => {
+  SETTINGS.forEach(s => {
+    cfg[s.id] = s.def / s.div;
+    $('s-' + s.id).value = s.def;
+    $('v-' + s.id).textContent = (s.div === 1 ? cfg[s.id] : cfg[s.id].toFixed(2));
+  });
+  preview();
+});
 
 $('save').addEventListener('click', () => {
   if (!zones.length) { alert('Aucune zone tracée.'); return; }
   const manifest = {
     image: imageName,
-    // Coordonnees normalisees sur l'image elle-meme, pas sur le canvas :
-    // recadrer ou redimensionner l'image ne casse donc pas le manifeste.
+    // Les reglages voyagent avec les zones : le generateur produit alors
+    // exactement ce que montre l'apercu, sans qu'on ait a les recopier.
+    render: Object.assign({}, cfg),
     zones: zones.map(z => ({ kind: z.kind, points: z.pts.map(
-      p => [Math.round(p[0] * 10000) / 10000, Math.round(p[1] * 10000) / 10000])
-    })),
+      p => [Math.round(p[0] * 10000) / 10000, Math.round(p[1] * 10000) / 10000]) })),
   };
   const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -250,8 +429,7 @@ $('save').addEventListener('click', () => {
   a.click();
 });
 
-buildKindButtons();
-refresh();
+buildKinds(); buildSliders(); refresh();
 </script>
 </body>
 </html>
