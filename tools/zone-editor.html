@@ -45,6 +45,11 @@
   .sl .lbl b { color: #ff5a00; font-weight: normal; }
   input[type=range] { width: 100%; accent-color: #ff5a00; }
   .cols { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+  pre#log { background: #14100c; border: 1px solid #3a2410; color: #c8763a;
+            padding: 9px; font-size: 11px; line-height: 1.45; margin: 8px 0 0;
+            max-height: 190px; overflow: auto; white-space: pre-wrap; }
+  .warn { border: 1px solid #3a2410; padding: 10px; font-size: 12px;
+          color: #c8763a; line-height: 1.5; border-radius: 2px; margin: 0 0 10px; }
 </style>
 </head>
 <body>
@@ -84,13 +89,18 @@
     <div id="sliders"></div>
     <button class="wide" id="reset-r">VALEURS PAR DÉFAUT</button>
 
-    <h2>EXPORT</h2>
-    <button class="wide primary" id="save">TÉLÉCHARGER LE MANIFESTE</button>
+    <h2>ACTIONS</h2>
+    <div id="offline" class="warn" hidden>
+      Page ouverte en fichier local : seul le téléchargement du manifeste
+      fonctionne. Pour tout piloter d'ici, lance
+      <code>py -3.12 tools/studio.py</code>.
+    </div>
+    <button class="wide primary" id="save">1 &middot; ENREGISTRER</button>
+    <button class="wide" id="gen">2 &middot; GÉNÉRER L'ART</button>
+    <button class="wide" id="dep">3 &middot; ENVOYER À ZAZA</button>
+    <button class="wide" id="all">TOUT ENCHAÎNER</button>
     <button class="wide" id="clear">EFFACER LES ZONES</button>
-    <p class="hint">
-      Le manifeste embarque aussi tes réglages de rendu, donc le générateur
-      produira exactement ce que tu vois ici.
-    </p>
+    <pre id="log">Prêt.</pre>
   </div>
 </div>
 
@@ -131,7 +141,7 @@ const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const pv = document.getElementById('pv'), pctx = pv.getContext('2d');
 const $ = id => document.getElementById(id);
 
-let img = null, imageName = 'creature.png';
+let img = null, imageName = 'creature.png', rawImage = null;
 let fit = { x: 0, y: 0, w: 0, h: 0 };
 let zones = [], current = [], kind = 'silhouette';
 const cfg = {};
@@ -399,6 +409,11 @@ $('file').addEventListener('change', e => {
     zones = []; current = []; imageName = f.name;
     refresh();
   };
+  // Conservee en base64 pour pouvoir la deposer a cote du manifeste : le
+  // generateur lit l'image sur le disque, pas dans le navigateur.
+  const fr = new FileReader();
+  fr.onload = () => { rawImage = fr.result; };
+  fr.readAsDataURL(f);
   im.src = URL.createObjectURL(f);
 });
 
@@ -412,22 +427,90 @@ $('reset-r').addEventListener('click', () => {
   preview();
 });
 
-$('save').addEventListener('click', () => {
-  if (!zones.length) { alert('Aucune zone tracée.'); return; }
-  const manifest = {
+// --- studio ---------------------------------------------------------------
+// Une page statique ne peut ni ecrire un fichier ni lancer PlatformIO. Quand
+// elle est servie par tools/studio.py, ces trois actions deviennent possibles.
+const STUDIO = location.protocol === 'http:' || location.protocol === 'https:';
+
+function log(msg, keep) {
+  const el = $('log');
+  el.textContent = keep ? el.textContent + '\n' + msg : msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+function manifestName() {
+  return imageName.replace(/\.[^.]+$/, '') + '.zones.json';
+}
+
+function buildManifest() {
+  return {
     image: imageName,
-    // Les reglages voyagent avec les zones : le generateur produit alors
-    // exactement ce que montre l'apercu, sans qu'on ait a les recopier.
     render: Object.assign({}, cfg),
     zones: zones.map(z => ({ kind: z.kind, points: z.pts.map(
       p => [Math.round(p[0] * 10000) / 10000, Math.round(p[1] * 10000) / 10000]) })),
   };
-  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = imageName.replace(/\.[^.]+$/, '') + '.zones.json';
-  a.click();
+}
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  return r.json();
+}
+
+function busy(on) {
+  ['save', 'gen', 'dep', 'all'].forEach(id => { $(id).disabled = on; });
+}
+
+async function doSave() {
+  if (!zones.length) { log('Aucune zone tracée.'); return false; }
+  if (!STUDIO) {
+    const blob = new Blob([JSON.stringify(buildManifest(), null, 2)],
+                          { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = manifestName(); a.click();
+    return true;
+  }
+  // L'image part avec, sinon le generateur ne la trouverait pas a cote du
+  // manifeste.
+  if (rawImage) {
+    await api('/upload-image', { name: imageName, data: rawImage });
+  }
+  const r = await api('/save', { name: manifestName(), manifest: buildManifest() });
+  log(r.ok ? 'Enregistré : ' + r.path : 'Échec : ' + (r.error || '?'));
+  return !!r.ok;
+}
+
+async function doGen() {
+  log('Génération en cours, une trentaine de secondes...');
+  const r = await api('/generate', { name: manifestName() });
+  log((r.ok ? 'Art généré.' : 'Échec de la génération.') + '\n' + (r.log || r.error || ''));
+  return !!r.ok;
+}
+
+async function doDeploy() {
+  log('Compilation et envoi par WiFi, compter une minute...');
+  const r = await api('/deploy', {});
+  log((r.ok ? 'Envoyé. Zaza redémarre.' : 'Échec de l envoi.') + '\n' + (r.log || ''));
+  return !!r.ok;
+}
+
+$('save').addEventListener('click', async () => { busy(true); await doSave(); busy(false); });
+$('gen').addEventListener('click', async () => { busy(true); await doGen(); busy(false); });
+$('dep').addEventListener('click', async () => { busy(true); await doDeploy(); busy(false); });
+$('all').addEventListener('click', async () => {
+  busy(true);
+  if (await doSave() && await doGen()) await doDeploy();
+  busy(false);
 });
+
+if (!STUDIO) {
+  $('offline').hidden = false;
+  ['gen', 'dep', 'all'].forEach(id => { $(id).disabled = true; });
+  $('save').textContent = 'TÉLÉCHARGER LE MANIFESTE';
+}
 
 buildKinds(); buildSliders(); refresh();
 </script>
