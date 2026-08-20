@@ -81,6 +81,13 @@ py -3.12 -m platformio run -e esp32dev -t upload
 py -3.12 -m platformio run -e esp32dev-ota -t upload
 ```
 
+Ou `deploie.bat`, qui régénère l'art puis envoie, et `deploie.bat rapide` qui
+saute la génération — celle-ci dure plusieurs minutes et ne sert que si le
+générateur a changé.
+
+`platformio_local.ini` vise **`zaza.local`** et non une IP : le nom suit la
+carte d'un réseau à l'autre, une IP non.
+
 Après un flash série, `Hard resetting via RTS pin` **ne redémarre pas
 fiablement** cette carte. Si les nouvelles routes répondent encore `500`
 après un flash réussi, la carte tourne encore l'ancien firmware : débrancher
