@@ -285,10 +285,33 @@ code : l'authentification du WebSocket, et les 324 ms de `statusJson()`.
 
 ---
 
-## En suspens
+## Direction
 
-- Rendre les frames d'art en bitmap plutôt qu'en texte, pour dépasser 30 fps.
-- Pipeline « n'importe quelle photo → ASCII animé », avec un manifeste
-  déclarant où sont les yeux et la bouche. La conversion tourne sur PC, pas
-  sur l'ESP32.
-- Porter le chat chez Léo en additif, et lui proposer les deux correctifs.
+**Le chat est un prototype.** Il a servi à prouver que la chaîne tient —
+génération, expressions paramétrées, mouvement continu, déclenchement à
+distance — et pas à être un skin définitif. Ne pas le traiter comme un acquis
+intouchable : il est là pour être remplacé par mieux.
+
+Ce que Samuel veut construire, dans cet ordre :
+
+1. **Un système d'art ASCII animé générique.** N'importe quelle image devient
+   une créature expressive. Le point dur est connu : les mimiques du chat
+   marchent parce que le générateur le *dessine*, ses yeux sont des ellipses
+   avec un paramètre `eye_open`. Une image quelconque n'est que des pixels —
+   il n'y a pas d'œil à fermer. La piste retenue est un manifeste par
+   personnage déclarant où sont les yeux et la bouche, et une déformation de
+   ces régions. À 40x30 avec une rampe de 18 niveaux, le détail est déjà
+   largement détruit par la conversion, donc l'approximation tient mieux
+   qu'on ne le croirait. La conversion tourne sur PC, pas sur l'ESP32.
+
+2. **De petits éléments d'interaction.** Ce qui se passe quand on touche la
+   créature, comment elle réagit, ce qu'elle fait d'elle-même quand on la
+   laisse tranquille. `mood` et les animations nommées sont les premières
+   briques ; il y a de la place au-dessus.
+
+3. Rendre les frames en bitmap plutôt qu'en texte, pour dépasser les 30 fps.
+   Utile en soi, et ça simplifie le point 1 au lieu de le compliquer.
+
+La fusion avec l'amont n'est **pas** prioritaire. Voir `docs-pour-leo.md` :
+les deux correctifs mesurés lui sont utilisables immédiatement, le reste
+attend que le moteur ait pris sa forme.

@@ -134,20 +134,36 @@ lieu d'embarquer une copie qui dérive.
 
 ---
 
-## 4. ⚠️ Le point délicat : `SKINS[]` a été réordonné
+## 4. Le chat est un prototype, pas un skin à intégrer
 
-Ton README dit, à juste titre, de ne jamais réordonner `SKINS[]` parce que
-l'index est ce qui est persisté en NVS. **Le fork de Samuel l'a fait** : il a
-inséré `"Cat"` en **position 0**, décalant tes 17 skins d'un cran.
+Point important pour situer tout le reste : **`"Cat"` est un proto.** Il sert
+à valider une idée, il n'a pas vocation à entrer dans ta table de skins en
+l'état.
 
-C'était avant d'avoir lu ton avertissement, et c'est assumé ici plutôt que
-caché. Conséquences concrètes :
+Ce que Samuel construit, c'est un **système d'art ASCII animé** — un moteur
+où une image devient une créature avec ses mimiques, pas un dessin de chat en
+particulier. Le chat est simplement le premier sujet de test, celui qui a
+servi à prouver que la chaîne tient de bout en bout : génération, expressions
+paramétrées par œil et par museau, mouvement continu, déclenchement à
+distance.
 
-- une carte passant du fork au `master` verrait son skin choisi glisser d'un
-  cran ;
-- toute reprise du chat doit l'ajouter **en fin de `SKINS[]`**, pas en tête.
+### Ce que ça implique côté `SKINS[]`
 
-La ligne, avec la palette bleue qui est celle de Zaza :
+Le fork a inséré `"Cat"` en **position 0**, décalant tes 17 skins d'un cran —
+exactement ce que ton README déconseille, puisque l'index est ce qui est
+persisté en NVS. C'était avant d'avoir lu ton avertissement, et c'est signalé
+ici plutôt que caché.
+
+Une carte passant du fork à ton `master` verrait donc son skin choisi glisser
+d'un cran. Mais comme le chat est un proto, la question ne se pose pas
+vraiment : il n'y a pas à lui trouver une place définitive maintenant.
+
+Ce qui mérite d'être discuté, c'est le **moteur** — `asciiart` et son système
+d'expressions — et lui n'impose aucun réordonnancement : un art ASCII n'est
+qu'un layout de plus.
+
+Si tu veux quand même le chat tel quel pour essayer, la ligne va **en fin de
+table** :
 
 ```cpp
 { "Cat", 4, 8, 18,  90, 175, 255,  30, 70, 130, "/\\_/\\", "w", false, LAYOUT_ASCIIART, 0 },
@@ -187,21 +203,28 @@ carte et que `/api/status` est le bon endroit pour ce genre d'observation.
 
 ---
 
-## 6. Ce que Samuel propose
+## 6. Où en est Samuel, et ce qu'il propose
 
-Il veut garder son chat et bénéficier de ton moteur et de ton auto-update.
-Ton README ouvre exactement cette voie : contenu créatif en additif, features
-moteur bienvenues.
+**Sa priorité n'est pas la fusion.** Il veut d'abord pousser son système
+d'art ASCII animé, et travailler de **petits éléments d'interaction** — ce qui
+se passe quand on touche la créature, comment elle réagit, ce qu'elle fait
+d'elle-même quand on la laisse tranquille. Le chat, ses mimiques et le
+déclenchement à distance sont les premières briques de ça.
 
-Ordre suggéré, du moins risqué au plus engageant :
+Donc rien ne presse côté intégration, et il ne te demande aucune décision
+maintenant.
 
-1. Les deux correctifs de la section 1. Indépendants de tout choix créatif.
-2. La documentation de la collision de hostname, et `find_port.py`.
-3. Les modules moteur — BLE, provisionnement WiFi, tuning, humeurs. C'est ce
+Ce qui est utilisable **tout de suite et sans rien engager**, ce sont les deux
+correctifs de la section 1 : ils sont dans votre base commune, ils sont
+mesurés, et ils ne dépendent d'aucun choix créatif. Prends-les quand tu veux.
+
+Ensuite, si le sujet t'intéresse, du moins au plus engageant :
+
+1. La documentation de la collision de hostname, et `tools/find_port.py`.
+2. Les modules moteur — BLE, provisionnement WiFi, tuning, humeurs. C'est ce
    qui manque le plus à ton `master`, et rien là-dedans n'est spécifique au
    chat.
-4. Le chat lui-même : `asciiart` + `cat_ascii` + une ligne ajoutée **en fin**
-   de `SKINS[]`.
+3. Le moteur d'art ASCII, quand il aura pris sa forme. C'est là que Samuel
+   veut discuter avec toi plutôt que livrer du fini.
 
-Rien n'a été poussé chez toi. Tout est sur le dépôt de Samuel, à toi de voir
-ce que tu veux prendre.
+Rien n'a été poussé chez toi. Tout est sur son dépôt, à toi de voir.
