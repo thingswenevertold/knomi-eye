@@ -225,13 +225,56 @@ help when it refuses:
 ## 5. Networking notes
 
 - The device registered with the router's DNS as `knomi-eye.home`, and
-  `knomi-eye.local` / `knomi-eye` resolve too. **`upload_port = knomi-eye.local` is
-  fine** — a first lookup failed only because the query ran seconds after boot,
-  before registration.
-- Reserve the IP with a static DHCP lease. Verified working: after a full power
-  cycle the board came back on the same address. Find it by MAC prefix `C8:2E:18`,
-  Espressif's OUI.
+  `knomi-eye.local` / `knomi-eye` resolve too. A first lookup failed only because
+  the query ran seconds after boot, before registration. **But see the hostname
+  collision below before trusting that name.**
+- Reserve the IP with a static DHCP lease *if the board lives on one network*.
+  It does not help a board you carry between sites — an mDNS hostname does.
+  Find it by MAC prefix `C8:2E:18`, Espressif's OUI.
 - `GET /` and `GET /api/status` both correctly return `401` without credentials.
+  This is a useful probe: on this server build a route that **exists** answers
+  `401` without credentials, while an unregistered path answers `500`. So
+  `401` vs `500` tells you whether a firmware has a given route, with no
+  password needed.
+
+### Two boards, one hostname — cost a morning
+
+`OTA_HOSTNAME` ends up as both the WiFi hostname and the mDNS name. Flash the
+same value onto two boards and `<name>.local` resolves to whichever answers
+first. There is no error, no warning, and no sign anything is wrong: the name
+resolves, the server replies, everything looks healthy.
+
+What it looked like, on a network with two boards both called `knomi-eye`:
+
+- a serial flash reported `Hash of data verified` and `SUCCESS`
+- the new firmware's routes still answered `500`, i.e. absent
+- an OTA push with the freshly-flashed password answered `Authentication Failed`
+- a power cycle changed nothing
+
+Every one of those is consistent with "the flash silently failed", which is the
+wrong conclusion and an expensive one. The flash was fine. The queries were
+going to the other board.
+
+**The check that settles it, in one line:** resolve the name, then compare the
+MAC behind that IP against the MAC `esptool` prints when it connects over USB.
+
+```
+ping -n 1 <name>.local
+arp -a | findstr c8-2e-18
+```
+
+Two `C8:2E:18` rows means two boards, and the one you are flashing is the one
+whose MAC matches `esptool`'s. Note the WiFi MAC and the BT MAC differ by one
+in the last byte on ESP32, so `...:24` over USB and `...:26` in a BLE scan are
+the same chip.
+
+The fix is a unique `OTA_HOSTNAME` per board, not a pinned IP: the name follows
+the board onto any network, which a DHCP reservation cannot do. Pinning
+`upload_port` to an IP is a stopgap for one site, worth doing while a stale
+hostname is still flashed on the other board.
+
+**Do not diagnose a device over the network until you have confirmed the thing
+answering is the thing you are holding.**
 
 ---
 
