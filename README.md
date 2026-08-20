@@ -320,6 +320,32 @@ device running this firmware:
   creative content (specific skins, embedded photos, someone's own
   additions) additive and out of the CI secrets file.
 
+## Remote status relay + knomi-hub
+
+`src/statuspublish.cpp` periodically (every 10 min, if `GITHUB_STATUS_TOKEN`
+is set in `secrets.h`) publishes a small public snapshot — skin, energy,
+XP, age, firmware version — to `status/<hostname>.json` in this repo via
+the GitHub Contents API. This is a relay, not a direct connection: it lets
+a companion device on a **completely different network** (e.g. at work,
+while the knomi-eye device stays at home) know the device's status without
+either side needing to be reachable from the other or exposing a home
+network to the internet.
+
+`knomi-hub` (sibling project, `../knomi-hub` — not nested in this repo) is
+that companion device: a salvaged ESP32-WROOM-32E dev board + SSD1306 OLED,
+read-only for now. It polls `status/*.json` and `firmware/version.txt` from
+this repo over HTTPS and displays each tracked device's stats plus whether
+a firmware update is pending, rotating screens every few seconds.
+
+Planned next: an RFID reader on the hub (Skylanders-style) — eventually
+each physical KNOMI's case would carry an embedded tag, and scanning it at
+the hub would identify/sync that specific creature. The write-back
+direction (hub → device commands, e.g. a remote "feed" trigger) needs a
+second repo-relay channel (each device polling a `commands/<hostname>.json`
+it writes with its own GitHub token) — not built yet, deliberately scoped
+out of the read-only v1 to keep the write-capable token's blast radius
+small until it's needed.
+
 ## Known quirks
 
 - **BOOT-mode entry is manual, every time.** This board's auto-reset via

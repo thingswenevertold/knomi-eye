@@ -11,6 +11,7 @@
 #include "weather.h"
 #include "updater.h"
 #include "identity.h"
+#include "statuspublish.h"
 
 namespace {
     enum class Screen { Face, Status };
@@ -30,6 +31,7 @@ void setup() {
     state::begin();
     weather::begin();
     updater::begin();
+    statuspublish::begin();
 
     ota::begin();
     if (ota::isConnected()) {
@@ -92,6 +94,7 @@ void loop() {
     }
     state::tick(now);
     weather::tick(now);
+    statuspublish::tick(now);
 
     int unlocked = state::pollNewUnlock();
     if (unlocked >= 0) {
