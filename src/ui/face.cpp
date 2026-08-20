@@ -3,7 +3,10 @@
 #include "skins.h"
 #include "../assets/cat.h"
 #include "../assets/google.h"
+#include "../timesync.h"
+#include "../weather.h"
 #include <Arduino.h>
+#include <WiFi.h>
 #include <Preferences.h>
 #include <cstdlib>
 #include <cmath>
@@ -40,6 +43,11 @@ uint32_t nextSpecialMs = 0;
 const char* lastEyesText = "o o";
 const char* lastMouthText = "-";
 
+char bannerText[24] = "";
+uint32_t bannerUntilMs = 0;
+
+uint32_t seenMask = 0; // bit i set once skin i has been applied at least once
+
 enum class GlitchPayload { Ascii, Static, Cat, Google };
 
 bool glitchBurst = false;
@@ -51,12 +59,36 @@ uint32_t randRange(uint32_t lo, uint32_t hi) {
     return lo + (rand() % (hi - lo + 1));
 }
 
+bool isNight() {
+    int hr = timesync::hour();
+    return hr >= 0 && (hr < 6 || hr >= 23);
+}
+
+// Smoothly ramps brightness down 22:30-23:30 and back up 05:30-06:30,
+// instead of an abrupt jump at the night-mode boundary.
+uint8_t computeBrightness() {
+    float hf = timesync::hourFraction();
+    if (hf < 0.0f) return 255;
+
+    constexpr uint8_t DAY = 255, NIGHT = 60;
+    if (hf >= 6.5f && hf < 22.5f) return DAY;
+    if (hf < 5.5f || hf >= 23.5f) return NIGHT;
+
+    float t;
+    if (hf < 6.5f) {
+        t = (hf - 5.5f); // ramp up, 05:30-06:30
+        return (uint8_t)(NIGHT + (DAY - NIGHT) * t);
+    }
+    t = (hf - 22.5f); // ramp down, 22:30-23:30
+    return (uint8_t)(DAY - (DAY - NIGHT) * t);
+}
+
 void scheduleNextBlink(uint32_t now) {
-    nextBlinkMs = now + randRange(2000, 5000);
+    nextBlinkMs = now + (isNight() ? randRange(6000, 12000) : randRange(2000, 5000));
 }
 
 void scheduleNextSpecial(uint32_t now) {
-    nextSpecialMs = now + randRange(4000, 9000);
+    nextSpecialMs = now + (isNight() ? randRange(20000, 40000) : randRange(4000, 9000));
 }
 
 Special pickSpecial() {
@@ -85,6 +117,53 @@ void drawButtonEyes(float centerY) {
         display::fillCircleNorm(cx + HOLE_D, centerY - HOLE_D, 0.018f, colorRing);
         display::fillCircleNorm(cx - HOLE_D, centerY + HOLE_D, 0.018f, colorRing);
         display::fillCircleNorm(cx + HOLE_D, centerY + HOLE_D, 0.018f, colorRing);
+    }
+}
+
+// Small weather icon, top-left, mirroring the WiFi-lost dot on the right.
+// Deliberately generic vector shapes so it sits quietly on top of any skin.
+void drawWeatherIcon() {
+    weather::Condition c = weather::current();
+    if (c == weather::Condition::Unknown) return;
+
+    constexpr float cx = 0.10f, cy = 0.10f;
+    uint32_t ink = display::rgb(200, 200, 200);
+
+    switch (c) {
+        case weather::Condition::Clear:
+            display::fillCircleNorm(cx, cy, 0.022f, ink);
+            display::drawLineNorm(cx - 0.04f, cy, cx - 0.03f, cy, 0.004f, ink);
+            display::drawLineNorm(cx + 0.03f, cy, cx + 0.04f, cy, 0.004f, ink);
+            display::drawLineNorm(cx, cy - 0.04f, cx, cy - 0.03f, 0.004f, ink);
+            display::drawLineNorm(cx, cy + 0.03f, cx, cy + 0.04f, 0.004f, ink);
+            break;
+        case weather::Condition::Cloudy:
+            display::fillCircleNorm(cx - 0.015f, cy, 0.020f, ink);
+            display::fillCircleNorm(cx + 0.015f, cy + 0.006f, 0.020f, ink);
+            break;
+        case weather::Condition::Rain:
+            display::fillCircleNorm(cx, cy - 0.006f, 0.024f, ink);
+            display::drawLineNorm(cx - 0.012f, cy + 0.02f, cx - 0.02f, cy + 0.045f, 0.004f, ink);
+            display::drawLineNorm(cx + 0.012f, cy + 0.02f, cx + 0.004f, cy + 0.045f, 0.004f, ink);
+            break;
+        case weather::Condition::Snow:
+            display::fillCircleNorm(cx, cy - 0.006f, 0.024f, ink);
+            display::fillCircleNorm(cx - 0.014f, cy + 0.035f, 0.006f, ink);
+            display::fillCircleNorm(cx + 0.014f, cy + 0.035f, 0.006f, ink);
+            break;
+        case weather::Condition::Storm:
+            display::fillCircleNorm(cx, cy - 0.006f, 0.024f, ink);
+            display::drawLineNorm(cx + 0.005f, cy + 0.018f, cx - 0.01f, cy + 0.035f, 0.005f, ink);
+            display::drawLineNorm(cx - 0.01f, cy + 0.035f, cx + 0.008f, cy + 0.038f, 0.005f, ink);
+            display::drawLineNorm(cx + 0.008f, cy + 0.038f, cx - 0.006f, cy + 0.055f, 0.005f, ink);
+            break;
+        case weather::Condition::Fog:
+            display::drawLineNorm(cx - 0.03f, cy - 0.012f, cx + 0.03f, cy - 0.012f, 0.004f, ink);
+            display::drawLineNorm(cx - 0.03f, cy, cx + 0.03f, cy, 0.004f, ink);
+            display::drawLineNorm(cx - 0.03f, cy + 0.012f, cx + 0.03f, cy + 0.012f, 0.004f, ink);
+            break;
+        default:
+            break;
     }
 }
 
@@ -223,6 +302,11 @@ void setSkin(int index) {
     idleMouth = s.mouthIdle;
 
     prefs.putInt("skin", skinIndex);
+
+    if (!(seenMask & (1u << index))) {
+        seenMask |= (1u << index);
+        prefs.putUInt("seen", seenMask);
+    }
 }
 
 int getSkin() { return skinIndex; }
@@ -232,11 +316,25 @@ const char* getSkinName(int index) {
     return SKINS[index].name;
 }
 
+int seenCount() {
+    int n = 0;
+    for (int i = 0; i < SKIN_COUNT; i++) {
+        if (seenMask & (1u << i)) n++;
+    }
+    return n;
+}
+
+void celebrateUnlock(const char* skinName) {
+    snprintf(bannerText, sizeof(bannerText), "%s", skinName);
+    bannerUntilMs = millis() + 2500;
+}
+
 void begin() {
     colorGlitchCyan = display::rgb(60, 220, 255);
     colorGlitchMagenta = display::rgb(255, 60, 180);
 
     prefs.begin("knomi", false);
+    seenMask = prefs.getUInt("seen", 0);
     int saved = prefs.getInt("skin", 0);
     setSkin(saved);
 
@@ -351,7 +449,27 @@ void update(uint32_t now) {
         }
     }
 
+    // Small red dot, top-right, whenever WiFi isn't connected — independent
+    // of skin/layout so it's always visible as a quiet "offline" signal.
+    if (WiFi.status() != WL_CONNECTED) {
+        display::fillCircleNorm(0.90f, 0.10f, 0.025f, display::rgb(220, 40, 40));
+    }
+    drawWeatherIcon();
+
+    if (bannerUntilMs > now) {
+        display::fillRectNorm(0.0f, 0.44f, 1.0f, 0.16f, display::rgb(0, 0, 0));
+        display::drawTextCenteredNorm(0.5f, 0.52f, 0.07f, "NEW SKIN", display::rgb(255, 220, 60));
+        display::drawTextCenteredNorm(0.5f, 0.60f, 0.06f, bannerText, display::rgb(255, 220, 60));
+    }
+
     display::endFrame(colorBg);
+
+    static uint8_t lastBrightness = 255;
+    uint8_t targetBrightness = computeBrightness();
+    if (targetBrightness != lastBrightness) {
+        display::setBrightness(targetBrightness);
+        lastBrightness = targetBrightness;
+    }
 }
 
 Snapshot getSnapshot() {

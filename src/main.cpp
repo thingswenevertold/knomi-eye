@@ -6,6 +6,10 @@
 #include "ota.h"
 #include "web/admin_server.h"
 #include "diag.h"
+#include "timesync.h"
+#include "state.h"
+#include "weather.h"
+#include "updater.h"
 
 namespace {
     enum class Screen { Face, Status };
@@ -21,10 +25,15 @@ void setup() {
     status::begin();
     button::begin();
 
+    state::begin();
+    weather::begin();
+    updater::begin();
+
     ota::begin();
     if (ota::isConnected()) {
         admin::begin();
         adminActive = true;
+        timesync::begin();
     }
 }
 
@@ -34,6 +43,11 @@ void loop() {
     switch (button::poll(now)) {
         case button::Event::Click:
             diag::setButtonEvent("click");
+            if (updater::isAwaitingConfirm()) {
+                updater::confirm(); // blocks: downloads, flashes, reboots (or falls through to Error on failure)
+                break;
+            }
+            state::onInteraction();
             if (screen == Screen::Face) {
                 screen = Screen::Status;
                 statusPage = 0;
@@ -44,7 +58,13 @@ void loop() {
             break;
         case button::Event::LongPress:
             diag::setButtonEvent("long_press");
+            state::onInteraction();
+            state::onSpecialTriggered();
             face::triggerSpecial();
+            break;
+        case button::Event::VeryLongPress:
+            diag::setButtonEvent("very_long_press");
+            updater::startCheck();
             break;
         case button::Event::None:
             break;
@@ -56,7 +76,9 @@ void loop() {
 
     diag::setScreen(screen == Screen::Face ? "face" : "status");
 
-    if (screen == Screen::Face) {
+    if (updater::isActive()) {
+        updater::update(now);
+    } else if (screen == Screen::Face) {
         face::update(now);
     } else {
         status::update(now, statusPage);
@@ -66,5 +88,13 @@ void loop() {
     if (adminActive) {
         admin::handle(now);
     }
+    state::tick(now);
+    weather::tick(now);
+
+    int unlocked = state::pollNewUnlock();
+    if (unlocked >= 0) {
+        face::celebrateUnlock(face::getSkinName(unlocked));
+    }
+
     delay(16); // ~60 fps
 }

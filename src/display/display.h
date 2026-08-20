@@ -14,6 +14,7 @@ void begin();
 
 int widthPx();
 int heightPx();
+void setBrightness(uint8_t level);
 
 // Call once per frame before drawing, and once after to push to panel.
 void beginFrame();

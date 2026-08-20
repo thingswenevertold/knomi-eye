@@ -20,6 +20,11 @@ struct SkinDef {
     const char* mouthIdle;
     bool ring;
     uint8_t layout;
+
+    // XP threshold at which this skin is "celebrated" as newly unlocked.
+    // Not a hard lock — every skin stays freely selectable at any time via
+    // the dashboard; this only gates the one-time unlock banner/progress.
+    uint32_t unlockXp;
 };
 
 extern const SkinDef SKINS[];

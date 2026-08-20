@@ -1,0 +1,61 @@
+name: Build and publish firmware
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'firmware/**'
+      - '**.md'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # No personal WiFi creds here on purpose: the auto-updater on each
+      # device relies on WiFi's own already-saved credentials (persisted by
+      # the ESP32 WiFi driver / WiFiManager, independent of the app
+      # partition), NOT on anything baked into this CI build. See the
+      # "AI-ASSISTANT-NOTES" section of README.md for why this matters.
+      - name: Generate CI-only secrets.h
+        run: |
+          cat > include/secrets.h <<'EOF'
+          #pragma once
+          #define WIFI_SSID_1     ""
+          #define WIFI_PASSWORD_1 ""
+          #define WIFI_SSID_2     ""
+          #define WIFI_PASSWORD_2 ""
+          #define OTA_PASSWORD    "knomi-update"
+          #define OTA_HOSTNAME    "knomi-eye"
+          #define ADMIN_PASSWORD  "knomi-update"
+          EOF
+
+      - name: Build firmware
+        run: |
+          FW_VERSION=$(git rev-parse --short HEAD)
+          echo "FW_VERSION=$FW_VERSION" >> "$GITHUB_ENV"
+          export PLATFORMIO_BUILD_FLAGS='-DFIRMWARE_VERSION=\"'"$FW_VERSION"'\"'
+          echo "Building with: $PLATFORMIO_BUILD_FLAGS"
+          pio run -e esp32dev
+
+      - name: Publish firmware.bin + version.txt
+        run: |
+          mkdir -p firmware
+          cp .pio/build/esp32dev/firmware.bin firmware/firmware.bin
+          echo -n "$FW_VERSION" > firmware/version.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add firmware/firmware.bin firmware/version.txt
+          git diff --cached --quiet && echo "no firmware changes" || git commit -m "ci: publish firmware $FW_VERSION [skip ci]"
+          git push

@@ -26,4 +26,12 @@ int getSkin();
 int getSkinCount();
 const char* getSkinName(int index);
 
+// How many distinct skins have ever been applied on this device (a simple
+// "collection" counter), out of getSkinCount().
+int seenCount();
+
+// Shows a "NEW SKIN <name>" banner for a couple seconds. Called when a new
+// XP tier unlocks a skin (see state::pollNewUnlock()).
+void celebrateUnlock(const char* skinName);
+
 }

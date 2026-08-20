@@ -1,6 +1,7 @@
 #include "admin_server.h"
 #include "../ui/face.h"
 #include "../diag.h"
+#include "../state.h"
 
 #if __has_include("../../include/secrets.h")
 #include "../../include/secrets.h"
@@ -75,7 +76,10 @@ String statusJson() {
     json += "\"mouth\":\"" + jsonEscape(snap.mouth) + "\",";
     json += "\"last_button\":\"" + jsonEscape(diag::getButtonEvent()) + "\",";
     json += "\"screen\":\"" + jsonEscape(diag::getScreen()) + "\",";
-    json += "\"skin\":" + String(face::getSkin());
+    json += "\"skin\":" + String(face::getSkin()) + ",";
+    json += "\"energy_pct\":" + String(state::energyPercent()) + ",";
+    json += "\"xp\":" + String((unsigned long)state::xp()) + ",";
+    json += "\"age_s\":" + String((unsigned long)state::ageSeconds());
     json += "}";
     return json;
 }
@@ -112,12 +116,23 @@ String htmlPage() {
     html += "<h1>LIVE</h1>";
     html += "<div class='mirror'><span id='m-eyes'>o o</span><span id='m-mouth'>-</span></div>";
 
-    html += "<h1>SKIN</h1><div class='skins' id='skins'>";
+    html += "<h1>SKIN <span style='color:#c8763a;font-size:13px'>(" + String(face::seenCount()) +
+            "/" + String(face::getSkinCount()) + " discovered)</span></h1><div class='skins' id='skins'>";
     for (int i = 0; i < face::getSkinCount(); i++) {
         html += "<button class='skin-btn' data-i='" + String(i) + "' onclick='setSkin(" + String(i) +
                 ")'>" + String(face::getSkinName(i)) + "</button>";
     }
     html += "</div>";
+
+    html += "<h1>TAMAGOTCHI</h1>";
+    const char* petBars[1][2] = {{"energy", "ENERGY"}};
+    for (auto& b : petBars) {
+        html += "<div class='bar-row'><div class='bar-label'><span>" + String(b[1]) +
+                "</span><span id='" + String(b[0]) + "-pct'>--%</span></div>";
+        html += "<div class='bar-track'><div class='bar-fill' id='" + String(b[0]) + "-bar'></div></div></div>";
+    }
+    html += "<table><tr><td>XP</td><td id='xp'>-</td></tr>";
+    html += "<tr><td>Age</td><td id='age'>-</td></tr></table>";
 
     html += "<h1>USAGE</h1>";
     const char* bars[4][2] = {{"heap", "HEAP"}, {"psram", "PSRAM"}, {"flash", "FLASH"}, {"signal", "SIGNAL"}};
@@ -159,7 +174,11 @@ String htmlPage() {
     html += "document.getElementById('m-mouth').textContent=d.mouth;";
     html += "setBar('heap',d.heap_pct);setBar('psram',d.psram_pct);";
     html += "setBar('flash',d.flash_pct);setBar('signal',d.rssi_pct);";
+    html += "setBar('energy',d.energy_pct);";
     html += "document.getElementById('uptime').textContent=d.uptime_s+' s';";
+    html += "document.getElementById('xp').textContent=d.xp;";
+    html += "var ageD=Math.floor(d.age_s/86400), ageH=Math.floor((d.age_s%86400)/3600);";
+    html += "document.getElementById('age').textContent=d.age_s>0?(ageD+'d '+ageH+'h'):'unknown';";
     html += "markSkin(d.skin);};";
     html += "</script></body></html>";
     return html;

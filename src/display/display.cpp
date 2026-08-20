@@ -25,6 +25,7 @@ void begin() {
 
 int widthPx()  { return lcd.width(); }
 int heightPx() { return lcd.height(); }
+void setBrightness(uint8_t level) { lcd.setBrightness(level); }
 
 void beginFrame() {
     // no-op: sprite is persistent, cleared by fillScreenNorm() each frame

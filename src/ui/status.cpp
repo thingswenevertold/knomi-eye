@@ -1,5 +1,6 @@
 #include "status.h"
 #include "../display/display.h"
+#include "../state.h"
 #include <WiFi.h>
 #include <Arduino.h>
 
@@ -17,7 +18,7 @@ void begin() {
     colorDim    = display::rgb(140, 80, 30);
 }
 
-int pageCount() { return 3; }
+int pageCount() { return 6; }
 
 void update(uint32_t /*now*/, int page) {
     char label[16];
@@ -34,7 +35,7 @@ void update(uint32_t /*now*/, int page) {
             snprintf(value, sizeof(value), "%s",
                      WiFi.isConnected() ? WiFi.localIP().toString().c_str() : "-");
             break;
-        default:
+        case 2:
             snprintf(label, sizeof(label), "SIGNAL");
             if (WiFi.isConnected()) {
                 snprintf(value, sizeof(value), "%d dBm", WiFi.RSSI());
@@ -42,6 +43,27 @@ void update(uint32_t /*now*/, int page) {
                 snprintf(value, sizeof(value), "-");
             }
             break;
+        case 3: {
+            snprintf(label, sizeof(label), "ENERGY");
+            snprintf(value, sizeof(value), "%d%%", state::energyPercent());
+            break;
+        }
+        case 4: {
+            snprintf(label, sizeof(label), "XP");
+            snprintf(value, sizeof(value), "%lu", (unsigned long)state::xp());
+            break;
+        }
+        default: {
+            snprintf(label, sizeof(label), "AGE");
+            uint32_t age = state::ageSeconds();
+            if (age == 0) {
+                snprintf(value, sizeof(value), "unknown");
+            } else {
+                snprintf(value, sizeof(value), "%lud %luh",
+                         (unsigned long)(age / 86400), (unsigned long)((age % 86400) / 3600));
+            }
+            break;
+        }
     }
 
     display::beginFrame();
