@@ -167,6 +167,16 @@ const Frame CUP_SLEEP[] = {
 
 }
 
+namespace {
+
+const asciiart::Expressions CAT_EXPR = {
+    assets::CAT_WINK,      (uint8_t)assets::CAT_WINK_COUNT,
+    assets::CAT_SURPRISED, (uint8_t)assets::CAT_SURPRISED_COUNT,
+    assets::CAT_HAPPY,     (uint8_t)assets::CAT_HAPPY_COUNT,
+};
+
+}
+
 namespace asciiart {
 
 const Anim ANIMS[] = {
@@ -174,7 +184,7 @@ const Anim ANIMS[] = {
     // makes 30 rows tile the panel exactly.
     { "cat",    assets::CAT_ASCII, (uint8_t)assets::CAT_ASCII_COUNT,
                 assets::CAT_ASCII_SLEEP, (uint8_t)assets::CAT_ASCII_SLEEP_COUNT,
-                110, 0.03333f, 1.0f },
+                110, 0.03333f, 1.0f, &CAT_EXPR },
     // Hand-typed 11-column art.
     { "fire",   FIRE_FRAMES,   4, FIRE_SLEEP,   2, 130, 0.10f, 1.02f },
     { "heart",  HEART_FRAMES, 10, HEART_SLEEP,  8, 110, 0.10f, 1.02f },

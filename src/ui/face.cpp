@@ -246,6 +246,71 @@ void drawGlitchFace(uint32_t now, bool blink) {
 // Multi-line ASCII picture. Each row is drawn as its own centered line —
 // asciiart.cpp guarantees every row of a frame has identical length, which
 // is what keeps them aligned with each other.
+// Deplacement applique a l'art ASCII, en unites normalisees.
+//
+// L'animation de l'art se contente d'echanger des frames entieres, ce qui se
+// lit comme un clignotement plutot que comme un mouvement. Ces offsets sont
+// des fonctions continues du temps : a 90 images par seconde l'image glisse
+// pixel par pixel, et le personnage bouge au lieu de sauter.
+// 0 au debut de l'animation nommee en cours, 1 a sa fin. Vaut 1 quand
+// aucune ne tourne. Le deplacement et la mimique s'y referent tous les deux,
+// ce qui les garde en phase par construction.
+float specialProgress(uint32_t now) {
+    if (special == Special::None) return 1.0f;
+    const uint32_t dur = specialDuration(special);
+    if (dur == 0) return 1.0f;
+    uint32_t remain = (specialUntilMs > now) ? (specialUntilMs - now) : 0;
+    if (remain > dur) remain = dur;
+    return 1.0f - (float)remain / (float)dur;
+}
+
+struct ArtMotion {
+    float dx;     // translation horizontale
+    float dy;     // translation verticale
+    float lean;   // inclinaison : appliquee en haut, nulle en bas, donc le
+                  // personnage bascule sur sa base au lieu de glisser
+};
+
+ArtMotion artMotion(uint32_t now) {
+    ArtMotion m{0.0f, 0.0f, 0.0f};
+
+    // Respiration permanente, tres faible. C'est ce qui distingue une image
+    // fixe d'une creature au repos, et ca ne coute rien.
+    const float e = mood::energy();
+    m.dy += 0.006f * sinf(now * 0.0016f) * (0.35f + 0.65f * e);
+
+    if (special == Special::None) return m;
+    const float t = specialProgress(now);
+
+    switch (special) {
+        case Special::Dance: {
+            // Deux sauts sur la duree, avec un balancement lateral.
+            const float phase = t * 6.2831f * 2.0f;
+            m.dx += 0.050f * sinf(phase);
+            m.dy -= 0.020f * fabsf(sinf(phase));
+            break;
+        }
+        case Special::Wobble: {
+            // Bascule d'un cote puis de l'autre, pivot en bas.
+            m.lean += 0.065f * sinf(t * 6.2831f * 1.5f);
+            break;
+        }
+        case Special::Wink: {
+            // Un plongeon bref, aller-retour sur toute la duree.
+            m.dy += 0.022f * sinf(t * 3.1416f);
+            break;
+        }
+        case Special::Surprised: {
+            // Sursaut vers le haut, puis retour amorti.
+            m.dy -= 0.055f * sinf(t * 3.1416f * 3.0f) * (1.0f - t);
+            break;
+        }
+        default:
+            break;
+    }
+    return m;
+}
+
 void drawAsciiArtFace(uint32_t now) {
     const asciiart::Anim& a = asciiart::ANIMS[animIndex];
 
@@ -256,6 +321,33 @@ void drawAsciiArtFace(uint32_t now) {
         frames = a.sleepFrames;
         count = a.sleepFrameCount;
     }
+    // Une animation nommee prend la main sur la boucle d'attente : l'art joue
+    // sa propre mimique, une seule fois, en phase avec le deplacement.
+    int forced = -1;
+    if (special != Special::None && a.expressions != nullptr) {
+        const asciiart::Expressions& ex = *a.expressions;
+        const asciiart::Frame* set = nullptr;
+        uint8_t setCount = 0;
+        switch (special) {
+            case Special::Wink:
+                set = ex.wink;     setCount = ex.winkCount;     break;
+            case Special::Surprised:
+                set = ex.surprise; setCount = ex.surpriseCount; break;
+            case Special::Dance:
+            case Special::Wobble:
+                set = ex.happy;    setCount = ex.happyCount;    break;
+            default:
+                break;
+        }
+        if (set != nullptr && setCount > 0) {
+            frames = set;
+            count = setCount;
+            forced = (int)(specialProgress(now) * setCount);
+            if (forced >= (int)setCount) forced = setCount - 1;
+            if (forced < 0) forced = 0;
+        }
+    }
+
     if (count == 0) return;
 
     uint32_t dt = now - asciiLastMs;
@@ -266,13 +358,19 @@ void drawAsciiArtFace(uint32_t now) {
     asciiPhaseMs += (uint32_t)(dt * e * tuning::speedScale());
 
     const uint16_t frameMs = a.frameMs ? a.frameMs : 200;
-    const asciiart::Frame& f = frames[(asciiPhaseMs / frameMs) % count];
+    const asciiart::Frame& f =
+        (forced >= 0) ? frames[forced] : frames[(asciiPhaseMs / frameMs) % count];
     if (f.rowCount == 0) return;
 
+    const ArtMotion m = artMotion(now);
     const float lineH = a.glyphH * (a.lineMul > 0.0f ? a.lineMul : 1.02f);
-    const float y0 = 0.5f - (f.rowCount - 1) * lineH * 0.5f;
+    const float y0 = 0.5f - (f.rowCount - 1) * lineH * 0.5f + m.dy;
     for (uint8_t i = 0; i < f.rowCount; i++) {
-        display::drawTextCenteredNorm(0.5f, y0 + i * lineH, a.glyphH, f.rows[i], colorFace);
+        // 1 en haut, 0 en bas : l'inclinaison pivote sur la base.
+        const float fromBottom =
+            (f.rowCount > 1) ? (1.0f - (float)i / (float)(f.rowCount - 1)) : 0.0f;
+        display::drawTextCenteredNorm(0.5f + m.dx + m.lean * fromBottom,
+                                      y0 + i * lineH, a.glyphH, f.rows[i], colorFace);
     }
 
     lastEyesText = idleEyes;
@@ -438,10 +536,13 @@ void update(uint32_t now) {
     display::beginFrame();
     display::fillScreenNorm(colorBg);
 
-    if (special != Special::None) {
-        // Special animations always use the shared generic template, even
-        // on custom-layout skins, so the long-press easter egg stays
-        // meaningful everywhere.
+    // Les skins en art ASCII gardent leur image pendant une animation : elle
+    // EST le personnage, la remplacer par "o o" le fait disparaitre au profit
+    // d'un visage generique. Le mouvement est porte par artMotion() a la
+    // place. Les autres layouts continuent d'utiliser le template partage.
+    if (special != Special::None && layout != LAYOUT_ASCIIART) {
+        // Special animations use the shared generic template, so the
+        // long-press easter egg stays meaningful on those skins.
         const char* eyesText = "o o";
         const char* mouthText = "-";
         float eyesX = 0.5f, eyesY = 0.40f;

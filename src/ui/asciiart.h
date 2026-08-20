@@ -24,6 +24,24 @@ struct Frame {
     uint8_t rowCount;
 };
 
+// Mimiques jouees UNE fois pendant une animation nommee, a la place des
+// frames d'attente.
+//
+// C'est ce qui permet a l'image d'etre elle-meme expressive. L'alternative,
+// remplacer l'art par un visage generique le temps de l'animation, revient a
+// faire disparaitre le personnage de son propre ecran — ce qui est exactement
+// ce que faisait la version precedente.
+//
+// Un art sans mimiques laisse ce pointeur nul : il garde alors sa boucle
+// d'attente, et seul le deplacement porte l'animation.
+struct Expressions {
+    const Frame* wink;       uint8_t winkCount;
+    const Frame* surprise;   uint8_t surpriseCount;
+    // Joie : partagee par la danse et le balancement, qui different par le
+    // mouvement du corps et non par l'expression du visage.
+    const Frame* happy;      uint8_t happyCount;
+};
+
 struct Anim {
     const char* name;
     const Frame* frames;
@@ -38,6 +56,8 @@ struct Anim {
     // 1.0 so 30 rows of 8px tile 240px precisely; coarse art looks better
     // with a little leading.
     float lineMul;
+    // nullptr quand l'art n'a pas de mimiques.
+    const Expressions* expressions;
 };
 
 extern const Anim ANIMS[];
