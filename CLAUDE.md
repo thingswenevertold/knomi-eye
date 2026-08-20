@@ -261,6 +261,16 @@ pour qu'une carte sans PC compagnon finisse quand même par dormir.
 
 ---
 
+## Repartition avec l'amont
+
+Samuel prend **les skins et l'interactivite** : ce qui s'affiche, et comment
+on dialogue avec la creature — telecommande Bluetooth depuis le telephone, et
+pilotage depuis le PC branche. Leo garde **le materiel** : bring-up,
+alimentation, bootloader, portage de dalle, auto-update.
+
+Le depot de Samuel lui est partage, il y est invite en collaborateur.
+`docs-pour-leo.md` est le document qui lui est destine.
+
 ## Relation avec l'amont
 
 `thingswenevertold/knomi-eye` est public et actif. Sa base a divergé : il a
