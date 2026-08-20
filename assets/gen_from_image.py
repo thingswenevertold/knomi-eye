@@ -231,8 +231,19 @@ def base_image(src, zones, render=None):
     # Quatre tons suffisent a decrire une tete ; les variations plus fines
     # ne survivaient pas a la conversion et n'ajoutaient que du bruit.
     photo = np.clip((photo - 0.5) * R["contrast"] + 0.5 + R["bright"], 0.0, 1.0)
+
+    # Quantiles a population egale plutot que bandes de largeur egale : la
+    # fourrure ecrase l'histogramme, et des bandes egales laissaient presque
+    # tous les pixels dans une ou deux d'entre elles — un rendu monochrome.
+    # Chaque ton recoit ici le meme nombre de pixels, donc chaque caractere
+    # de la rampe est reellement utilise.
     L = max(2, int(round(R["levels"])))
-    photo = np.round(photo * (L - 1)) / (L - 1)
+    sample = photo[body > 0.5]
+    if sample.size:
+        cuts = np.quantile(sample, np.linspace(0.0, 1.0, L + 1)[1:-1])
+        photo = np.digitize(photo, cuts).astype(np.float32) / (L - 1)
+    else:
+        photo = np.round(photo * (L - 1)) / (L - 1)
 
     # Pose basse et resserree : la plupart des cellules doivent rester
     # creuses, sinon le panneau bave en une masse blanche.

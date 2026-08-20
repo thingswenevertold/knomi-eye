@@ -313,13 +313,30 @@ function preview() {
 
   const out = new Float32Array(240 * 240);
   const L = Math.max(2, Math.round(cfg.levels));
+  // Deux passes. D'abord la valeur ajustee de chaque pixel du corps, puis
+  // une posterisation par QUANTILES : la fourrure ecrase l'histogramme, et
+  // des bandes de largeur egale laissaient presque tout dans une ou deux
+  // d'entre elles — un rendu monochrome. A population egale, chaque ton et
+  // donc chaque caractere sert vraiment.
+  const adj = new Float32Array(240 * 240);
+  const vals = [];
   for (let i = 0; i < out.length; i++) {
-    if (body[i] < 0.5) { out[i] = 0; continue; }
+    if (body[i] < 0.5) { adj[i] = -1; continue; }
     let v = (lum[i] - lo) / span;
     v = (v - 0.5) * cfg.contrast + 0.5 + cfg.bright;
-    v = Math.min(1, Math.max(0, v));
-    v = Math.round(v * (L - 1)) / (L - 1);
-    out[i] = cfg.floor + cfg.amp * v;
+    adj[i] = Math.min(1, Math.max(0, v));
+    vals.push(adj[i]);
+  }
+  vals.sort((a, b) => a - b);
+  const thr = [];
+  for (let k = 1; k < L; k++) {
+    thr.push(vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * k / L))] : k / L);
+  }
+  for (let i = 0; i < out.length; i++) {
+    if (adj[i] < 0) { out[i] = 0; continue; }
+    let lev = 0;
+    while (lev < thr.length && adj[i] >= thr[lev]) lev++;
+    out[i] = cfg.floor + cfg.amp * (lev / (L - 1));
   }
 
   // Liseré sombre, pour que la silhouette morde sur le fond.
