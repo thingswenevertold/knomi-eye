@@ -88,5 +88,12 @@ void loop() {
     if (adminActive) {
         admin::handle(now);
     }
-    delay(16); // ~60 fps
+    // Cadence sur la duree reelle de la frame, au lieu d'ajouter 16 ms a
+    // celle-ci : le rendu coute deja plusieurs millisecondes, donc le "~60 fps"
+    // annonce n'etait jamais atteint, et l'intervalle variait avec la charge.
+    // On garde toujours au moins un delay(1) pour que WiFi et BLE aient leur
+    // tour — les affamer coute bien plus cher que quelques images.
+    const uint32_t FRAME_MS = 11;   // ~90 images par seconde, la dalle suit
+    const uint32_t spent = millis() - now;
+    delay(spent >= FRAME_MS ? 1 : FRAME_MS - spent);
 }
