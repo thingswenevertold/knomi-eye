@@ -51,7 +51,7 @@ N_IDLE, N_EXPR = 40, 16
 DEFAULT_RENDER = {
     "floor": 0.10, "amp": 0.80, "levels": 9,
     "eyeRx": 0.62, "eyeRy": 1.25,
-    "contrast": 1.00, "bright": 0.00, "blur": 0.75,
+    "contrast": 1.00, "bright": 0.00, "blur": 0.75, "edges": 0.50,
 }
 
 
@@ -135,7 +135,7 @@ def to_cells(img):
     return img.reshape(ROWS, CELL_H, COLS, CELL_W).mean(axis=(1, 3))
 
 
-def to_chars(cells, gamma=0.80, lift=0.06, span=0.86):
+def to_chars(cells, gamma=0.80, lift=0.06, span=0.86, strokes=None):
     rows = []
     n = len(RAMP)
     for r in range(ROWS):
@@ -146,10 +146,74 @@ def to_chars(cells, gamma=0.80, lift=0.06, span=0.86):
             if x * x + y * y > 0.25:          # hors du panneau rond
                 out.append(" ")
                 continue
+            # Un trait prime sur le ton : c'est lui qui porte la forme.
+            if strokes is not None and (r, c) in strokes:
+                out.append(strokes[(r, c)])
+                continue
             v = float(np.clip((cells[r, c] - lift) / span, 0.0, 1.0))
             out.append(RAMP[min(max(int(round(v ** gamma * (n - 1))), 0), n - 1)])
         rows.append("".join(out).rstrip().ljust(COLS))
     return rows
+
+
+def stroke_grid(img, body, mapped, strength):
+    """Traits au niveau cellule : contour de silhouette + aretes internes.
+
+    Chaque cellule traversee par une arete recoit le caractere oriente
+    comme elle — c'est le vocabulaire du dessin au trait, celui des petits
+    formats d'ASCII art qui se lisent. Les boites des yeux, du nez et de
+    la bouche sont exclues : ces zones sont dessinees, pas tracees.
+    """
+    cells = to_cells(img)
+    bcells = to_cells(body)
+
+    excl = []
+    for k in ("eye_left", "eye_right", "nose", "mouth"):
+        if k in mapped:
+            excl.append(bbox(mapped[k]))
+
+    def excluded(cx, cy):
+        for x0, y0, x1, y1 in excl:
+            if x0 - 0.02 <= cx <= x1 + 0.02 and y0 - 0.02 <= cy <= y1 + 0.02:
+                return True
+        return False
+
+    gy, gx = np.gradient(cells)
+    mag = np.hypot(gx, gy)
+    if mag.max() > 0:
+        mag = mag / mag.max()
+    bgy, bgx = np.gradient(bcells)
+    bmag = np.hypot(bgx, bgy)
+
+    thr = 0.60 - 0.40 * float(strength)
+    out = {}
+    for r in range(ROWS):
+        for c in range(COLS):
+            x = (c + 0.5) / COLS - 0.5
+            y = (r + 0.5) / ROWS - 0.5
+            if x * x + y * y > 0.25:
+                continue
+            cx, cy = (c + 0.5) / COLS, (r + 0.5) / ROWS
+            is_rim = bmag[r, c] > 0.28 and bcells[r, c] > 0.15
+            is_edge = (bcells[r, c] > 0.5 and mag[r, c] > thr
+                       and not excluded(cx, cy))
+            if not (is_rim or is_edge):
+                continue
+            ax = bgx[r, c] if is_rim else gx[r, c]
+            ay = bgy[r, c] if is_rim else gy[r, c]
+            # Le gradient est perpendiculaire a l'arete : on tourne de 90
+            # degres pour obtenir la direction du trait lui-meme.
+            edge = (math.degrees(math.atan2(ay, ax)) + 90.0) % 180.0
+            if edge < 22.5 or edge >= 157.5:
+                ch = "-"
+            elif edge < 67.5:
+                ch = "/"
+            elif edge < 112.5:
+                ch = "|"
+            else:
+                ch = chr(92)          # antislash, echappe a l'emission
+            out[(r, c)] = ch
+    return out
 
 
 # Ce qu'on appuie, et de combien. Negatif = on creuse.
@@ -306,7 +370,8 @@ def base_image(src, zones, render=None):
 
     img = np.clip(img, 0.0, 1.0) * body
     mapped.update(drawn_eyes)
-    return img, mapped
+    strokes = stroke_grid(img, body, mapped, R["edges"])
+    return img, mapped, strokes
 
 
 # --- jeux de frames -------------------------------------------------------
@@ -346,7 +411,7 @@ def both_eyes(img, mapped, factor):
     return img
 
 
-def build_sets(base, mapped):
+def build_sets(base, mapped, strokes):
     sets = {}
 
     idle = []
@@ -357,17 +422,17 @@ def build_sets(base, mapped):
         for start in (9, 27):
             if start <= f < start + 3:
                 o = min(o, 1.0 - ease((f - start) / 3.0) * 0.92)
-        idle.append(to_chars(to_cells(base if o > 0.99 else both_eyes(base, mapped, o))))
+        idle.append(to_chars(to_cells(base if o > 0.99 else both_eyes(base, mapped, o)), strokes=strokes))
     sets["ASCII"] = idle
 
-    sets["ASCII_SLEEP"] = [to_chars(to_cells(both_eyes(base, mapped, 0.10)))] * 4
+    sets["ASCII_SLEEP"] = [to_chars(to_cells(both_eyes(base, mapped, 0.10)), strokes=strokes)] * 4
 
     wink = []
     for f in range(N_EXPR):
         u = f / float(N_EXPR - 1)
         img = base
         img = close_eye(img, mapped, "eye_right", 1.0 - 0.92 * ease(u), S_W, S_H)
-        wink.append(to_chars(to_cells(img)))
+        wink.append(to_chars(to_cells(img), strokes=strokes))
     sets["WINK"] = wink
 
     sur = []
@@ -376,13 +441,13 @@ def build_sets(base, mapped):
         img = both_eyes(base, mapped, 1.0 + 0.50 * ease(u))
         if "mouth" in mapped:
             img = squash_zone(img, mapped["mouth"], 1.0 + 0.60 * ease(u), S_W, S_H)
-        sur.append(to_chars(to_cells(img)))
+        sur.append(to_chars(to_cells(img), strokes=strokes))
     sets["SURPRISED"] = sur
 
     hap = []
     for f in range(N_EXPR):
         u = f / float(N_EXPR - 1)
-        hap.append(to_chars(to_cells(both_eyes(base, mapped, 1.0 - 0.55 * ease(u)))))
+        hap.append(to_chars(to_cells(both_eyes(base, mapped, 1.0 - 0.55 * ease(u))), strokes=strokes))
     sets["HAPPY"] = hap
 
     ang = []
@@ -394,7 +459,7 @@ def build_sets(base, mapped):
             if k in mapped:
                 img = shift_zone(img, mapped[k], 0.0, 0.050 * e, S_W, S_H)
         img = both_eyes(img, mapped, 1.0 - 0.30 * e)
-        ang.append(to_chars(to_cells(img)))
+        ang.append(to_chars(to_cells(img), strokes=strokes))
     sets["ANGRY"] = ang
 
     return sets
@@ -422,7 +487,9 @@ def emit(name, sets, out_dir):
         for i, rows in enumerate(frames):
             lines.append("const char* const %s_%s_%02d[] = {" % (up, key, i))
             for r in rows:
-                lines.append('    "%s",' % r)
+                # L'antislash des traits diagonaux doit etre double dans un
+                # litteral C, sinon il avale le caractere suivant.
+                lines.append('    "%s",' % r.replace(chr(92), chr(92) * 2))
             lines.append("};")
         lines.append("")
     lines.append("}")
@@ -450,17 +517,17 @@ if __name__ == "__main__":
         raise SystemExit(__doc__)
 
     src, zones, render = load(args[0])
-    base, mapped = base_image(src, zones, render)
+    base, mapped, strokes = base_image(src, zones, render)
     name = os.path.basename(args[0]).split(".")[0] + "photo"
 
     print("image : %dx%d" % src.size)
     print("zones : %s" % ", ".join(sorted(mapped)))
     print()
     print("=== repos ===")
-    for r in to_chars(to_cells(base)):
+    for r in to_chars(to_cells(base), strokes=strokes):
         print("  |" + r + "|")
 
-    sets = build_sets(base, mapped)
+    sets = build_sets(base, mapped, strokes)
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "assets")
     stem = emit(name, sets, out)
 

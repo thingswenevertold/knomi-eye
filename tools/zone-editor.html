@@ -139,6 +139,8 @@ const SETTINGS = [
   { id: 'contrast',label: 'CONTRASTE',   min: 40,  max: 220, def: 100, div: 100 },
   { id: 'bright',  label: 'LUMINOSITÉ',  min: -40, max: 40,  def: 0,  div: 100 },
   { id: 'blur',    label: 'FLOU',        min: 0,   max: 250, def: 75, div: 100 },
+  { id: 'edges',   label: 'TRAITS',      min: 0,   max: 100, def: 50, div: 100,
+    help: 'contours et aretes en / | - ' },
 ];
 
 const RAMP = " :.;-~/^_'`,!|<>(){}j+rvxi=fl1cIJL7otunakwzs%XVCeyq&hKmSPUbdgAO2$8HNWGQZERD*0M#@B";
@@ -378,7 +380,73 @@ function preview() {
                       (nx1 - nx0) * 0.34, (ny1 - ny0) * 0.28), 0.03);
   }
 
-  // Moyenne par cellule, puis rampe.
+  // --- grilles au niveau cellule : tons et presence du corps ------------
+  const vGrid = [], bGrid = [];
+  for (let r = 0; r < ROWS; r++) {
+    vGrid.push(new Float32Array(COLS)); bGrid.push(new Float32Array(COLS));
+    for (let c = 0; c < COLS; c++) {
+      let acc = 0, bacc = 0;
+      for (let y = 0; y < CH; y++)
+        for (let x = 0; x < CW; x++) {
+          const i = (r * CH + y) * 240 + (c * CW + x);
+          acc += out[i]; bacc += body[i];
+        }
+      vGrid[r][c] = acc / (CW * CH);
+      bGrid[r][c] = bacc / (CW * CH);
+    }
+  }
+
+  // --- traits : contour de silhouette + aretes internes ------------------
+  // Le meme vocabulaire que gen_from_image.py : chaque cellule traversee
+  // par une arete recoit le caractere oriente comme elle. Les zones des
+  // yeux, du nez et de la bouche sont dessinees, pas tracees.
+  const excl = [];
+  ['eye_left', 'eye_right', 'nose', 'mouth'].forEach(k => {
+    const z = zoneOf(k); if (z) excl.push(bboxOf(place(z)));
+  });
+  const inExcl = (x, y) => excl.some(b =>
+    x >= b[0] - 0.02 && x <= b[2] + 0.02 && y >= b[1] - 0.02 && y <= b[3] + 0.02);
+  const at = (grid, r, c) =>
+    grid[Math.max(0, Math.min(ROWS - 1, r))][Math.max(0, Math.min(COLS - 1, c))];
+
+  const gxA = [], gyA = [], bgxA = [], bgyA = [];
+  let magMax = 1e-6;
+  for (let r = 0; r < ROWS; r++) {
+    gxA.push([]); gyA.push([]); bgxA.push([]); bgyA.push([]);
+    for (let c = 0; c < COLS; c++) {
+      const gx = (at(vGrid, r, c + 1) - at(vGrid, r, c - 1)) / 2;
+      const gy = (at(vGrid, r + 1, c) - at(vGrid, r - 1, c)) / 2;
+      gxA[r].push(gx); gyA[r].push(gy);
+      bgxA[r].push((at(bGrid, r, c + 1) - at(bGrid, r, c - 1)) / 2);
+      bgyA[r].push((at(bGrid, r + 1, c) - at(bGrid, r - 1, c)) / 2);
+      magMax = Math.max(magMax, Math.hypot(gx, gy));
+    }
+  }
+  const strokes = {};
+  const thr = 0.60 - 0.40 * cfg.edges;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const dx = (c + 0.5) / COLS - 0.5, dy = (r + 0.5) / ROWS - 0.5;
+      if (dx * dx + dy * dy > 0.25) continue;
+      const cx = (c + 0.5) / COLS, cy2 = (r + 0.5) / ROWS;
+      const isRim = Math.hypot(bgxA[r][c], bgyA[r][c]) > 0.28 && bGrid[r][c] > 0.15;
+      const mag = Math.hypot(gxA[r][c], gyA[r][c]) / magMax;
+      const isEdge = bGrid[r][c] > 0.5 && mag > thr && !inExcl(cx, cy2);
+      if (!isRim && !isEdge) continue;
+      const ax = isRim ? bgxA[r][c] : gxA[r][c];
+      const ay = isRim ? bgyA[r][c] : gyA[r][c];
+      // Le gradient est perpendiculaire a l'arete : +90 degres donne la
+      // direction du trait lui-meme.
+      let edge = (Math.atan2(ay, ax) * 180 / Math.PI + 90) % 180;
+      if (edge < 0) edge += 180;
+      strokes[r * COLS + c] =
+        (edge < 22.5 || edge >= 157.5) ? '-' :
+        (edge < 67.5) ? '/' :
+        (edge < 112.5) ? '|' : '\\';
+    }
+  }
+
+  // --- rampe --------------------------------------------------------------
   const cell = 360 / COLS;
   pctx.font = (cell * 1.15).toFixed(1) + 'px ui-monospace, Consolas, monospace';
   pctx.fillStyle = '#ffa55a';
@@ -388,14 +456,12 @@ function preview() {
     for (let c = 0; c < COLS; c++) {
       const dx = (c + 0.5) / COLS - 0.5, dy = (r + 0.5) / ROWS - 0.5;
       if (dx * dx + dy * dy > 0.25) continue;
-      let acc = 0;
-      for (let y = 0; y < CH; y++)
-        for (let x = 0; x < CW; x++)
-          acc += out[(r * CH + y) * 240 + (c * CW + x)];
-      let v = acc / (CW * CH);
-      v = Math.min(1, Math.max(0, (v - 0.06) / 0.86));
-      const idx = Math.round(Math.pow(v, 0.80) * (RAMP.length - 1));
-      const ch = RAMP[Math.min(RAMP.length - 1, Math.max(0, idx))];
+      let ch = strokes[r * COLS + c];
+      if (ch === undefined) {
+        let v = Math.min(1, Math.max(0, (vGrid[r][c] - 0.06) / 0.86));
+        const idx = Math.round(Math.pow(v, 0.80) * (RAMP.length - 1));
+        ch = RAMP[Math.min(RAMP.length - 1, Math.max(0, idx))];
+      }
       if (ch !== ' ') pctx.fillText(ch, c * (pv.width / COLS), r * rowH - rowH * 0.15);
     }
   }
