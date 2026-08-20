@@ -331,11 +331,17 @@ while the knomi-eye device stays at home) know the device's status without
 either side needing to be reachable from the other or exposing a home
 network to the internet.
 
-`knomi-hub` (sibling project, `../knomi-hub` — not nested in this repo) is
-that companion device: a salvaged ESP32-WROOM-32E dev board + SSD1306 OLED,
-read-only for now. It polls `status/*.json` and `firmware/version.txt` from
-this repo over HTTPS and displays each tracked device's stats plus whether
-a firmware update is pending, rotating screens every few seconds.
+`knomi-hub/` (own PlatformIO project, own `platformio.ini`, nested in this
+repo) is that companion device: a salvaged ESP32-WROOM-32E dev board +
+SSD1306 OLED + RC522 RFID reader. It polls `status/*.json` and
+`firmware/version.txt` from this repo over HTTPS and displays each tracked
+device's stats plus whether a firmware update is pending, rotating screens
+every few seconds. It also doubles as a tag-writing "portal": since this
+particular board has no user button (only reset), the RFID label to write
+next auto-advances after each successful write — scan tags back-to-back
+and they get labeled in sequence (see `DEVICES[]` in `knomi-hub/src/main.cpp`).
+It handles both MIFARE Classic (auth + block write) and Ultralight/NTAG21x
+(common on keyfobs, no auth, page write) tags automatically.
 
 Planned next: an RFID reader on the hub (Skylanders-style) — eventually
 each physical KNOMI's case would carry an embedded tag, and scanning it at
