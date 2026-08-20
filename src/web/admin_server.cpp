@@ -1,6 +1,7 @@
 #include "admin_server.h"
 #include "play_page.h"
 #include "../ui/face.h"
+#include "../ui/mood.h"
 #include "../ui/tuning.h"
 #include "../diag.h"
 
@@ -327,6 +328,20 @@ void begin() {
 
     // Exactly what the physical button does, so a tap on a phone and a poke
     // on the device are the same event as far as the mood layer is concerned.
+    // Presence du poste de travail. Appelee par un declencheur du
+    // planificateur de taches Windows au verrouillage et a la mise en veille,
+    // et a l'inverse au reveil. Voir tools/presence-windows.ps1.
+    server.on("/api/presence", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!requireAuth(request)) return;
+        if (!request->hasParam("away")) {
+            request->send(400, "text/plain", "missing ?away=0|1");
+            return;
+        }
+        const bool away = request->getParam("away")->value().toInt() != 0;
+        mood::setPcAway(away);
+        request->send(200, "text/plain", away ? "away" : "present");
+    });
+
     server.on("/api/pet", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (!requireAuth(request)) return;
         face::notifyInteraction(millis());

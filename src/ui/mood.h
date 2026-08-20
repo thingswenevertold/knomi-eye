@@ -25,6 +25,15 @@ enum class State : uint8_t {
 
 void begin();
 
+// Presence rapportee par le poste de travail : verrouille ou en veille, donc
+// absent. Tant qu'aucun signal n'est jamais arrive, le repli au minuteur
+// d'origine s'applique — un boitier sans PC compagnon doit quand meme finir
+// par s'endormir. Des le premier signal recu, c'est lui qui decide, et
+// l'inactivite seule ne ferme plus les yeux : au repos la creature reste
+// eveillee, ce qui est le comportement voulu quand quelqu'un est devant.
+void setPcAway(bool away);
+bool pcDriven();
+
 // Call once per frame. Recomputes the state from elapsed time and radio health.
 void update(uint32_t nowMs);
 

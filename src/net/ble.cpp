@@ -1,6 +1,7 @@
 #include "ble.h"
 #include "wifiprov.h"
 #include "../ui/face.h"
+#include "../ui/mood.h"
 #include "../ui/tuning.h"
 #include "../util/minijson.h"
 
@@ -108,6 +109,12 @@ void runCommand(const String& body) {
             String name;
             minijson::getString(body, "name", name);
             face::playAnim(name.c_str());
+            return;
+        }
+        if (cmd == "presence") {
+            bool away = false;
+            minijson::getBool(body, "away", away);
+            mood::setPcAway(away);
             return;
         }
         if (cmd == "pet") {

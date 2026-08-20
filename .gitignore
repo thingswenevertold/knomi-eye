@@ -9,3 +9,6 @@ Tamaweb-win32-x64/
 
 # Contient le mot de passe OTA.
 platformio_local.ini
+
+# Contient le mot de passe du dashboard, pour les taches de presence.
+tools/presence.local.json

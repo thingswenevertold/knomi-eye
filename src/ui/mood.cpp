@@ -63,6 +63,18 @@ uint32_t idleForMs(uint32_t now) {
     return now - lastInteractionMs;   // unsigned arithmetic survives rollover
 }
 
+namespace {
+bool pcSignalSeen = false;
+bool pcAway = false;
+}
+
+void setPcAway(bool away) {
+    pcSignalSeen = true;
+    pcAway = away;
+}
+
+bool pcDriven() { return pcSignalSeen; }
+
 void update(uint32_t now) {
     if (now >= nextRadioPollMs) {
         nextRadioPollMs = now + RADIO_POLL_MS;
@@ -74,9 +86,16 @@ void update(uint32_t now) {
 
     // Ordered by precedence: a recent touch outranks everything, and a
     // missing network outranks a merely weak one.
+    // Le poste absent l'emporte sur tout : c'est un fait rapporte, pas une
+    // deduction a partir d'un minuteur.
+    if (pcSignalSeen && pcAway) { state = State::Asleep; return; }
+
     if (idle < ENGAGED_MS)              state = State::Engaged;
     else if (!radioConnected)           state = State::Lost;
-    else if (idle >= ASLEEP_AFTER_MS)   state = State::Asleep;
+    // Le sommeil par inactivite ne subsiste que tant qu'aucun poste ne s'est
+    // annonce. Des qu'il y en a un, rester au repos veut dire que quelqu'un
+    // est la, et la creature garde les yeux ouverts.
+    else if (!pcSignalSeen && idle >= ASLEEP_AFTER_MS) state = State::Asleep;
     else if (radioRssi < WEAK_RSSI_DBM) state = State::Uneasy;
     else if (idle >= BORED_AFTER_MS)    state = State::Bored;
     else                                state = State::Idle;
