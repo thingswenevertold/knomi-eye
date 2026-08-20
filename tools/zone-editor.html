@@ -332,14 +332,14 @@ function preview() {
     vals.push(adj[i]);
   }
   vals.sort((a, b) => a - b);
-  const thr = [];
+  const cuts = [];
   for (let k = 1; k < L; k++) {
-    thr.push(vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * k / L))] : k / L);
+    cuts.push(vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * k / L))] : k / L);
   }
   for (let i = 0; i < out.length; i++) {
     if (adj[i] < 0) { out[i] = 0; continue; }
     let lev = 0;
-    while (lev < thr.length && adj[i] >= thr[lev]) lev++;
+    while (lev < cuts.length && adj[i] >= cuts[lev]) lev++;
     out[i] = cfg.floor + cfg.amp * (lev / (L - 1));
   }
 
