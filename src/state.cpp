@@ -11,6 +11,7 @@ namespace {
     uint32_t lastDecayEpoch = 0; // last real-time instant we applied decay
     float energy = 80.0f;
     uint32_t xpTotal = 0;
+    uint32_t visits = 0;
 
     uint32_t lastTickMs = 0;
     constexpr uint32_t TICK_INTERVAL_MS = 15000; // rate-limit NVS writes
@@ -24,6 +25,7 @@ namespace {
         prefs.putUInt("born", bornEpoch);
         prefs.putFloat("energy", energy);
         prefs.putUInt("xp", xpTotal);
+        prefs.putUInt("visits", visits);
     }
 }
 
@@ -34,6 +36,7 @@ void begin() {
     bornEpoch = prefs.getUInt("born", 0);
     energy = prefs.getFloat("energy", 80.0f);
     xpTotal = prefs.getUInt("xp", 0);
+    visits = prefs.getUInt("visits", 0);
     highestUnlockedIndex = prefs.getInt("unlocked", 0);
     lastDecayEpoch = bornEpoch;
 }
@@ -75,6 +78,15 @@ void onSpecialTriggered() {
     save();
 }
 
+void onTagScan(int xpBonus, int energyBonus) {
+    xpTotal += xpBonus;
+    energy += energyBonus;
+    if (energy > 100.0f) energy = 100.0f;
+    if (energy < 0.0f) energy = 0.0f;
+    visits++;
+    save();
+}
+
 int energyPercent() {
     return (int)energy;
 }
@@ -88,6 +100,10 @@ uint32_t ageSeconds() {
     if (bornEpoch == 0 || !timesync::isSynced()) return 0;
     uint32_t now = timesync::epoch();
     return (now > bornEpoch) ? (now - bornEpoch) : 0;
+}
+
+uint32_t visitCount() {
+    return visits;
 }
 
 int pollNewUnlock() {

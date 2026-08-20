@@ -76,6 +76,7 @@ String statusJson() {
     json += "\"energy_pct\":" + String(state::energyPercent()) + ",";
     json += "\"xp\":" + String((unsigned long)state::xp()) + ",";
     json += "\"age_s\":" + String((unsigned long)state::ageSeconds()) + ",";
+    json += "\"visits\":" + String((unsigned long)state::visitCount()) + ",";
     json += "\"weather\":" + String((int)weather::current()) + ",";
     json += "\"weather_debug\":\"" + jsonEscape(weather::debugInfo()) + "\"";
     json += "}";
@@ -130,7 +131,8 @@ String htmlPage() {
         html += "<div class='bar-track'><div class='bar-fill' id='" + String(b[0]) + "-bar'></div></div></div>";
     }
     html += "<table><tr><td>XP</td><td id='xp'>-</td></tr>";
-    html += "<tr><td>Age</td><td id='age'>-</td></tr></table>";
+    html += "<tr><td>Age</td><td id='age'>-</td></tr>";
+    html += "<tr><td>Visits</td><td id='visits'>-</td></tr></table>";
 
     html += "<h1>USAGE</h1>";
     const char* bars[4][2] = {{"heap", "HEAP"}, {"psram", "PSRAM"}, {"flash", "FLASH"}, {"signal", "SIGNAL"}};
@@ -177,6 +179,7 @@ String htmlPage() {
     html += "document.getElementById('xp').textContent=d.xp;";
     html += "var ageD=Math.floor(d.age_s/86400), ageH=Math.floor((d.age_s%86400)/3600);";
     html += "document.getElementById('age').textContent=d.age_s>0?(ageD+'d '+ageH+'h'):'unknown';";
+    html += "document.getElementById('visits').textContent=d.visits;";
     html += "markSkin(d.skin);};";
     html += "</script></body></html>";
     return html;

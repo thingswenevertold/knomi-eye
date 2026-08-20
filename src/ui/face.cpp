@@ -43,6 +43,7 @@ uint32_t nextSpecialMs = 0;
 const char* lastEyesText = "o o";
 const char* lastMouthText = "-";
 
+char bannerTitle[16] = "NEW SKIN";
 char bannerText[24] = "";
 uint32_t bannerUntilMs = 0;
 
@@ -327,8 +328,19 @@ int seenCount() {
 }
 
 void celebrateUnlock(const char* skinName) {
+    snprintf(bannerTitle, sizeof(bannerTitle), "NEW SKIN");
     snprintf(bannerText, sizeof(bannerText), "%s", skinName);
     bannerUntilMs = millis() + 2500;
+}
+
+void celebrateVisit(int xpBonus, int energyBonus) {
+    snprintf(bannerTitle, sizeof(bannerTitle), "VISITED!");
+    snprintf(bannerText, sizeof(bannerText), "+%d xp  +%d egy", xpBonus, energyBonus);
+    bannerUntilMs = millis() + 2500;
+
+    uint32_t now = millis();
+    special = pickSpecial();
+    specialUntilMs = now + ((special == Special::Dance || special == Special::Wobble) ? 1600 : 900);
 }
 
 void begin() {
@@ -461,7 +473,7 @@ void update(uint32_t now) {
 
     if (bannerUntilMs > now) {
         display::fillRectNorm(0.0f, 0.44f, 1.0f, 0.16f, display::rgb(0, 0, 0));
-        display::drawTextCenteredNorm(0.5f, 0.52f, 0.07f, "NEW SKIN", display::rgb(255, 220, 60));
+        display::drawTextCenteredNorm(0.5f, 0.52f, 0.07f, bannerTitle, display::rgb(255, 220, 60));
         display::drawTextCenteredNorm(0.5f, 0.60f, 0.06f, bannerText, display::rgb(255, 220, 60));
     }
 

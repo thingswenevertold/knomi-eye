@@ -15,9 +15,13 @@ void tick(uint32_t nowMs);
 void onInteraction();      // any button press: small energy top-up
 void onSpecialTriggered(); // user-triggered special animation: +XP
 
+// Someone scanned this device's RFID tag at the hub (see commandpoll.h).
+void onTagScan(int xpBonus, int energyBonus);
+
 int energyPercent();  // 0-100
 uint32_t xp();
 uint32_t ageSeconds(); // 0 if birth timestamp not yet established (no time sync yet)
+uint32_t visitCount(); // how many times onTagScan() has ever fired
 
 // Checks the skin unlock thresholds (see skins.h) against current xp().
 // Returns the skin index that just crossed its threshold for the first

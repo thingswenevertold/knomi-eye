@@ -75,6 +75,7 @@ String buildStatusJson() {
     json += "\"energy_pct\":" + String(state::energyPercent()) + ",";
     json += "\"xp\":" + String((unsigned long)state::xp()) + ",";
     json += "\"age_s\":" + String((unsigned long)state::ageSeconds()) + ",";
+    json += "\"visits\":" + String((unsigned long)state::visitCount()) + ",";
     json += "\"weather\":" + String((int)weather::current()) + ",";
     json += "\"eyes\":\"" + jsonEscape(snap.eyes) + "\",";
     json += "\"mouth\":\"" + jsonEscape(snap.mouth) + "\",";

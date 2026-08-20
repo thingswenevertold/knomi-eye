@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <Preferences.h>
 
 #if __has_include("../include/secrets.h")
 #include "../include/secrets.h"
@@ -16,21 +17,24 @@
 
 // knomi-hub: a stationary status/notification node for the knomi-eye
 // ecosystem. It never talks to the knomi-eye devices directly (they're
-// usually on a different network) — it only reads the small public status
-// snapshots and firmware version that each device publishes to the shared
-// GitHub repo, and displays them on a small SSD1306 OLED.
+// usually on a different network) — it only reads/writes small files in
+// the shared GitHub repo as a relay.
 //
-// It also doubles as a tag-writing "portal" (Skylanders-style): the BOOT
-// button cycles which device label is armed, and placing a blank MIFARE
-// tag on the RC522 writes that label into it. Reading those tags back to
-// identify a physical KNOMI at the hub is a later step — this is just the
-// provisioning tool.
+// It's also the Skylanders-style "portal": presenting one of the RFID tags
+// (provisioned earlier — see git history for the write-mode version of
+// this file) identifies which KNOMI it belongs to and pushes a
+// commands/<device>.json to the repo with an XP/energy bonus. Each knomi-eye
+// device polls its own commands file (commandpoll.cpp) and applies it once.
 
 static const char* REPO = "thingswenevertold/knomi-eye";
 
-// Devices to track, and to offer as RFID tag labels.
+// Devices to track, and to recognize from scanned tags.
 static const char* DEVICES[] = { "aconit", "zaza" };
 constexpr int DEVICE_COUNT = sizeof(DEVICES) / sizeof(DEVICES[0]);
+
+constexpr int SCAN_XP_BONUS = 5;
+constexpr int SCAN_ENERGY_BONUS = 15;
+constexpr uint32_t SCAN_COOLDOWN_MS = 60000; // ignore repeat scans of the same tag within 60s
 
 // RC522 wiring (VSPI): SCK=18, MISO=19, MOSI=23 (SPI defaults), SDA/SS=5, RST=4.
 constexpr int RFID_SS_PIN = 5;
@@ -38,8 +42,8 @@ constexpr int RFID_RST_PIN = 4;
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
 MFRC522::MIFARE_Key rfidKey; // factory default 0xFF...FF
 
-constexpr int BOOT_PIN = 0;
-int selectedLabel = 0;
+Preferences prefs;
+uint32_t lastScanMs[DEVICE_COUNT] = {0};
 
 char writeMessage[40] = "";
 uint32_t writeMessageUntilMs = 0;
@@ -208,71 +212,148 @@ void drawUpdateScreen() {
     display.display();
 }
 
-// Returns true once on a fresh BOOT-button click (debounced, fires on release).
-bool bootClicked() {
-    static bool stableLevel = true;
-    static bool rawLevel = true;
-    static uint32_t lastEdgeMs = 0;
+const char* B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    bool level = digitalRead(BOOT_PIN);
-    uint32_t now = millis();
-    if (level != rawLevel) {
-        rawLevel = level;
-        lastEdgeMs = now;
+String base64Encode(const String& in) {
+    String out;
+    out.reserve((in.length() + 2) / 3 * 4);
+    size_t i = 0;
+    while (i + 2 < in.length()) {
+        uint32_t n = ((uint8_t)in[i] << 16) | ((uint8_t)in[i + 1] << 8) | (uint8_t)in[i + 2];
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += B64_CHARS[(n >> 6) & 0x3F];
+        out += B64_CHARS[n & 0x3F];
+        i += 3;
     }
-    if (level != stableLevel && now - lastEdgeMs > 30) {
-        bool wasPressed = (stableLevel == LOW);
-        stableLevel = level;
-        if (wasPressed && stableLevel == HIGH) return true;
+    size_t rem = in.length() - i;
+    if (rem == 1) {
+        uint32_t n = (uint8_t)in[i] << 16;
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += "==";
+    } else if (rem == 2) {
+        uint32_t n = ((uint8_t)in[i] << 16) | ((uint8_t)in[i + 1] << 8);
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += B64_CHARS[(n >> 6) & 0x3F];
+        out += "=";
     }
-    return false;
+    return out;
 }
 
-void tryWriteTag() {
+bool githubRequest(const String& method, const String& url, const String& body, String& responseOut) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.setTimeout(8000);
+    if (!http.begin(client, url)) return false;
+    http.addHeader("Authorization", String("Bearer ") + GITHUB_WRITE_TOKEN);
+    http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("User-Agent", "knomi-hub");
+    if (body.length() > 0) http.addHeader("Content-Type", "application/json");
+    int code = http.sendRequest(method.c_str(), (uint8_t*)body.c_str(), body.length());
+    responseOut = http.getString();
+    http.end();
+    return code >= 200 && code < 300;
+}
+
+// Pushes commands/<device>.json = {"type":"tag_scan","seq":N,"xp":X,"energy":E}.
+// seq is a small per-device counter persisted in NVS, so the KNOMI can tell
+// a genuinely new scan apart from re-reading the same command.
+bool pushScanCommand(const char* device) {
+    String seqKey = String("seq_") + device;
+    uint32_t seq = prefs.getUInt(seqKey.c_str(), 0) + 1;
+
+    String path = "commands/" + String(device) + ".json";
+    String apiUrl = "https://api.github.com/repos/" + String(REPO) + "/contents/" + path;
+
+    String getResp;
+    String sha;
+    if (githubRequest("GET", apiUrl + "?ref=master", "", getResp)) {
+        int idx = getResp.indexOf("\"sha\":");
+        if (idx >= 0) {
+            int start = getResp.indexOf('"', idx + 6) + 1;
+            int end = getResp.indexOf('"', start);
+            if (start > 0 && end > start) sha = getResp.substring(start, end);
+        }
+    }
+
+    String content = "{\"type\":\"tag_scan\",\"seq\":" + String(seq) +
+                      ",\"xp\":" + String(SCAN_XP_BONUS) +
+                      ",\"energy\":" + String(SCAN_ENERGY_BONUS) + "}";
+    String putBody = "{\"message\":\"scan: " + String(device) + "\",\"content\":\"" +
+                      base64Encode(content) + "\",\"branch\":\"master\"";
+    if (sha.length() > 0) putBody += ",\"sha\":\"" + sha + "\"";
+    putBody += "}";
+
+    String putResp;
+    bool ok = githubRequest("PUT", apiUrl, putBody, putResp);
+    if (ok) prefs.putUInt(seqKey.c_str(), seq);
+    return ok;
+}
+
+void tryReadTag() {
     if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
 
-    const char* label = DEVICES[selectedLabel];
     MFRC522::PICC_Type piccType = rfid.PICC_GetType(rfid.uid.sak);
-    MFRC522::StatusCode status = MFRC522::STATUS_ERROR;
+    String label;
 
     if (piccType == MFRC522::PICC_TYPE_MIFARE_MINI ||
         piccType == MFRC522::PICC_TYPE_MIFARE_1K ||
         piccType == MFRC522::PICC_TYPE_MIFARE_4K) {
-        // Classic: authenticate sector 1 (block 4) with the factory-default
-        // key, then write a 16-byte block.
         byte block = 4;
-        byte buffer[16] = {0};
-        strncpy((char*)buffer, label, sizeof(buffer));
-        status = rfid.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, block, &rfidKey, &(rfid.uid));
+        byte buffer[18];
+        byte size = sizeof(buffer);
+        MFRC522::StatusCode status = rfid.PCD_Authenticate(
+            MFRC522::PICC_CMD_MF_AUTH_KEY_A, block, &rfidKey, &(rfid.uid));
         if (status == MFRC522::STATUS_OK) {
-            status = rfid.MIFARE_Write(block, buffer, 16);
+            status = rfid.MIFARE_Read(block, buffer, &size);
+        }
+        if (status == MFRC522::STATUS_OK) {
+            char buf[17] = {0};
+            memcpy(buf, buffer, 16);
+            label = String(buf);
         }
     } else if (piccType == MFRC522::PICC_TYPE_MIFARE_UL) {
-        // Ultralight / NTAG21x (very common on cheap keyfobs): no auth, but
-        // pages are 4 bytes each — write pages 4 and 5 for up to 8 chars.
-        byte page4[4] = {0};
-        byte page5[4] = {0};
-        size_t len = strlen(label);
-        memcpy(page4, label, len < 4 ? len : 4);
-        if (len > 4) memcpy(page5, label + 4, (len - 4) < 4 ? (len - 4) : 4);
-        status = rfid.MIFARE_Ultralight_Write(4, page4, 4);
-        if (status == MFRC522::STATUS_OK) {
-            status = rfid.MIFARE_Ultralight_Write(5, page5, 4);
+        byte buffer[18];
+        byte size = sizeof(buffer);
+        if (rfid.MIFARE_Read(4, buffer, &size) == MFRC522::STATUS_OK) {
+            char buf[9] = {0};
+            memcpy(buf, buffer, 8);
+            label = String(buf);
         }
     }
-
-    if (status == MFRC522::STATUS_OK) {
-        snprintf(writeMessage, sizeof(writeMessage), "WRITTEN: %s", label);
-        // No button on this board to pick the next label — auto-advance so
-        // scanning tags back-to-back just works: aconit, then zaza, etc.
-        selectedLabel = (selectedLabel + 1) % DEVICE_COUNT;
-    } else {
-        snprintf(writeMessage, sizeof(writeMessage), "FAIL (%s)", rfid.PICC_GetTypeName(piccType));
-    }
-    writeMessageUntilMs = millis() + 2500;
 
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
+
+    int deviceIndex = -1;
+    for (int i = 0; i < DEVICE_COUNT; i++) {
+        if (label == DEVICES[i]) { deviceIndex = i; break; }
+    }
+
+    if (deviceIndex < 0) {
+        snprintf(writeMessage, sizeof(writeMessage), "unknown tag");
+        writeMessageUntilMs = millis() + 2000;
+        return;
+    }
+
+    uint32_t now = millis();
+    if (now - lastScanMs[deviceIndex] < SCAN_COOLDOWN_MS) {
+        snprintf(writeMessage, sizeof(writeMessage), "%s: cooldown", DEVICES[deviceIndex]);
+        writeMessageUntilMs = millis() + 1500;
+        return;
+    }
+    lastScanMs[deviceIndex] = now;
+
+    bool ok = pushScanCommand(DEVICES[deviceIndex]);
+    if (ok) {
+        snprintf(writeMessage, sizeof(writeMessage), "%s: +%d xp sent", DEVICES[deviceIndex], SCAN_XP_BONUS);
+    } else {
+        snprintf(writeMessage, sizeof(writeMessage), "%s: send failed", DEVICES[deviceIndex]);
+    }
+    writeMessageUntilMs = millis() + 2500;
 }
 
 void drawWriteFooter() {
@@ -281,8 +362,7 @@ void drawWriteFooter() {
     if (millis() < writeMessageUntilMs) {
         display.print(writeMessage);
     } else {
-        display.print("next tag: ");
-        display.print(DEVICES[selectedLabel]);
+        display.print("scan a tag...");
     }
 }
 
@@ -300,7 +380,7 @@ void setup() {
     display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
     drawWifiScreen();
 
-    pinMode(BOOT_PIN, INPUT_PULLUP);
+    prefs.begin("hub", false);
     SPI.begin();
     rfid.PCD_Init();
     for (int i = 0; i < 6; i++) rfidKey.keyByte[i] = 0xFF;
@@ -332,14 +412,9 @@ void loop() {
         refreshAll();
     }
 
-    if (bootClicked()) {
-        selectedLabel = (selectedLabel + 1) % DEVICE_COUNT;
-        redrawCurrentScreen();
-    }
-
-    tryWriteTag();
+    tryReadTag();
     if (millis() < writeMessageUntilMs) {
-        redrawCurrentScreen(); // keep the write-confirmation footer live
+        redrawCurrentScreen(); // keep the scan-confirmation footer live
     }
 
     if (now >= nextScreenSwitchMs) {

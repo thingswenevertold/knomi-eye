@@ -34,4 +34,8 @@ int seenCount();
 // XP tier unlocks a skin (see state::pollNewUnlock()).
 void celebrateUnlock(const char* skinName);
 
+// Shows a "VISITED!" banner + forces a special animation. Called when the
+// hub reports someone scanned this device's RFID tag (see commandpoll.h).
+void celebrateVisit(int xpBonus, int energyBonus);
+
 }
