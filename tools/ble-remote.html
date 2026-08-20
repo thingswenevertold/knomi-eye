@@ -38,6 +38,19 @@
   .warn { border: 1px solid #3a2410; padding: 12px; font-size: 12px;
           color: #c8763a; line-height: 1.5; border-radius: 2px; }
   code { color: #ff5a00; }
+  .skins button.active { background: #ff5a00; color: #0c0b0a; border-color: #ff5a00; }
+  .nets { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+  .nets button { display: flex; align-items: center; justify-content: space-between;
+                 gap: 10px; width: 100%; text-align: left; }
+  .nets button.sel { background: #ff5a00; color: #0c0b0a; border-color: #ff5a00; }
+  .nets .ss { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nets .rs { flex: none; font-size: 11px; opacity: .7; }
+  input[type=password] {
+    background: #221708; border: 1px solid #3a2410; color: #ff5a00;
+    font-family: inherit; font-size: 13px; padding: 10px; border-radius: 2px;
+    width: 100%; box-sizing: border-box; margin-bottom: 12px;
+  }
+  .now { font-size: 12px; color: #c8763a; line-height: 1.6; margin: 0 0 12px; }
 </style>
 </head>
 <body>
@@ -55,6 +68,15 @@
   <p id="status">Non connecté.</p>
 
   <div id="panel" class="panel" hidden>
+    <h2>RÉSEAU</h2>
+    <p class="now" id="wifi-now">État inconnu.</p>
+    <button id="scan">CHERCHER LES RÉSEAUX</button>
+    <div class="nets" id="nets"></div>
+    <input type="password" id="pass" placeholder="mot de passe du réseau"
+           autocomplete="off" hidden>
+    <button id="join" class="primary" hidden>REJOINDRE</button>
+    <button id="forget" hidden>OUBLIER LE RÉSEAU</button>
+
     <h2>COULEURS</h2>
     <label>FOND <input type="color" id="c-bg"></label>
     <label>VISAGE <input type="color" id="c-fg"></label>
@@ -82,6 +104,17 @@
 const SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';  // nous -> boîtier
 const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';  // boîtier -> nous
+
+// Reprend l'ordre de SKINS[] dans src/ui/skins.cpp. Le boîtier n'envoie que
+// l'index et le total, pas les noms. Si le firmware gagne un skin sans que
+// cette liste suive, les boutons en trop retombent sur leur index plutôt que
+// d'afficher un nom faux.
+const SKIN_NAMES = [
+  'Cat', 'TE Orange', 'Mono', 'Terminal', 'Kawaii', 'Dial', 'Blocks',
+  'Coraline', 'Night Garden', 'OP-1 Field', 'PO Grid', 'Game Boy', 'Vaporwave',
+  'Nokia 3310', 'Cassette', 'Cyber HUD', 'Claymation', 'Glitch',
+  'Hearth', 'Heartbeat', 'Coffee',
+];
 
 let rxChar = null;
 const enc = new TextEncoder();
@@ -135,11 +168,18 @@ function render(d) {
     box.innerHTML = '';
     for (let i = 0; i < skinCount; i++) {
       const b = document.createElement('button');
-      b.textContent = i;
+      b.textContent = SKIN_NAMES[i] || i;
+      b.dataset.i = i;
       b.onclick = () => send({ skin: i });
       box.appendChild(b);
     }
   }
+
+  // Le boîtier republie son état à chaque changement, d'où qu'il vienne — y
+  // compris du dashboard WiFi ouvert en parallèle. On se contente de suivre.
+  $('skins').querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', +b.dataset.i === d.skin);
+  });
 }
 
 function pushColors() {
@@ -150,6 +190,89 @@ function pushColors() {
          fgR: f[0], fgG: f[1], fgB: f[2],
          accR: a[0], accG: a[1], accB: a[2] });
 }
+
+// --- réseau -------------------------------------------------------------
+// Le firmware accepte trois verbes (scan, join, forget) et répond de façon
+// asynchrone : un scan met quelques secondes, un join jusqu'à douze.
+
+let choix = null;   // SSID sélectionné dans la liste
+
+function renderWifi(w) {
+  if (w.up) {
+    $('wifi-now').innerHTML = 'Connecté à <b>' + esc(w.ssid) + '</b><br>' +
+      'IP ' + esc(w.ip) + ' · ' + w.rssi + ' dBm';
+  } else if (w.stored) {
+    $('wifi-now').textContent = 'Réseau enregistré (' + w.ssid +
+      '), mais hors ligne pour le moment.';
+  } else {
+    $('wifi-now').textContent = 'Aucun réseau enregistré.';
+  }
+  $('forget').hidden = !w.stored;
+}
+
+function renderNets(d) {
+  const box = $('nets');
+  box.innerHTML = '';
+  if (!d.nets.length) { status('Aucun réseau trouvé.'); return; }
+  d.nets.forEach(n => {
+    const b = document.createElement('button');
+    b.innerHTML = '<span class="ss">' + (n.lock ? '' : '(ouvert) ') +
+                  esc(n.ssid) + '</span><span class="rs">' + n.rssi + '</span>';
+    b.onclick = () => {
+      choix = n.ssid;
+      box.querySelectorAll('button').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      $('pass').hidden = !n.lock;
+      $('pass').value = '';
+      $('join').hidden = false;
+      status('Réseau choisi : ' + n.ssid);
+    };
+    box.appendChild(b);
+  });
+  status(d.nets.length + ' réseaux' + (d.more ? ' (+' + d.more + ' plus faibles)' : '') + '.');
+}
+
+function esc(t) {
+  const d = document.createElement('div');
+  d.textContent = t == null ? '' : t;
+  return d.innerHTML;
+}
+
+// Le boîtier envoie trois formes de trame sur la même caractéristique : son
+// état complet, un résultat de scan, ou la réponse à un join. On aiguille sur
+// la forme plutôt que de supposer laquelle arrive.
+function onFrame(d) {
+  if (d.nets) { renderNets(d); return; }
+  if ('joined' in d) {
+    status(d.joined ? 'Réseau rejoint et enregistré.'
+                    : 'Échec : mot de passe refusé, ou réseau hors de portée.');
+    if (d.wifi) renderWifi(d.wifi);
+    return;
+  }
+  render(d);
+  if (d.wifi) renderWifi(d.wifi);
+  $('panel').hidden = false;
+}
+
+$('scan').addEventListener('click', () => {
+  status('Scan en cours…');
+  $('nets').innerHTML = '';
+  $('pass').hidden = true;
+  $('join').hidden = true;
+  choix = null;
+  send({ cmd: 'scan' });
+});
+
+$('join').addEventListener('click', () => {
+  if (!choix) return;
+  status("Connexion à " + choix + "… (jusqu’à 12 s)");
+  send({ cmd: 'join', ssid: choix, pass: $('pass').value });
+});
+
+$('forget').addEventListener('click', () => {
+  send({ cmd: 'forget' });
+  status('Réseau oublié.');
+});
 
 ['c-bg', 'c-fg', 'c-acc'].forEach(id => $(id).addEventListener('input', pushColors));
 $('bri').addEventListener('input', e => {
@@ -184,8 +307,7 @@ $('connect').addEventListener('click', async () => {
     await tx.startNotifications();
     tx.addEventListener('characteristicvaluechanged', ev => {
       try {
-        render(JSON.parse(dec.decode(ev.target.value)));
-        $('panel').hidden = false;
+        onFrame(JSON.parse(dec.decode(ev.target.value)));
       } catch (e) { /* trame partielle : la suivante corrigera */ }
     });
 
