@@ -208,18 +208,18 @@ const Anim ANIMS[] = {
                 // une frame d'art par image affichee. A 55 ms contre 33 ms de
                 // rendu, une frame durait tantot une image tantot deux, et ce
                 // battement se voyait comme des sauts.
-                40, 0.03333f, 1.0f, &CAT_EXPR },
+                39, 0.03333f, 1.0f, &CAT_EXPR },
     // Hand-typed 11-column art.
     { "fire",   FIRE_FRAMES,   4, FIRE_SLEEP,   2, 130, 0.10f, 1.02f },
-    { "heart",  HEART_FRAMES, 10, HEART_SLEEP,  8, 110, 0.10f, 1.02f },
+    { "heart",  HEART_FRAMES, 10, HEART_SLEEP,  8, 117, 0.10f, 1.02f },
     { "coffee", CUP_FRAMES,    4, CUP_SLEEP,    1, 260, 0.10f, 1.02f },
     // Second profil du generateur : meme moteur, autres proportions.
     { "fox",    assets::FOX_ASCII, (uint8_t)assets::FOX_ASCII_COUNT,
                 assets::FOX_ASCII_SLEEP, (uint8_t)assets::FOX_ASCII_SLEEP_COUNT,
-                40, 0.03333f, 1.0f, &FOX_EXPR },
+                39, 0.03333f, 1.0f, &FOX_EXPR },
     { "foxphoto", assets::FOXPHOTO_ASCII, (uint8_t)assets::FOXPHOTO_ASCII_COUNT,
                 assets::FOXPHOTO_ASCII_SLEEP, (uint8_t)assets::FOXPHOTO_ASCII_SLEEP_COUNT,
-                40, 0.03333f, 1.0f, &FOXPHOTO_EXPR },
+                39, 0.03333f, 1.0f, &FOXPHOTO_EXPR },
 };
 
 const int ANIM_COUNT = sizeof(ANIMS) / sizeof(ANIMS[0]);

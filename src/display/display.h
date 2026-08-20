@@ -38,6 +38,30 @@ void fillTriangleNorm(float x1, float y1, float x2, float y2, float x3, float y3
 // scaled to occupy roughly sizeNorm of the shorter screen dimension.
 void pushImageCenteredNorm(const uint16_t* data, int side, float sizeNorm);
 
+// Dessine une frame d'art ASCII multi-rangees en la rendant UNE seule
+// fois en bitmap 1 bit conserve en PSRAM, puis en la collant par bandes —
+// une bande par rangee de glyphes, ce qui conserve l'inclinaison par
+// rangee. `key` identifie la frame ; l'adresse de son tableau de rangees
+// convient. Rendre 1200 glyphes de texte a chaque image coutait ~30 ms ;
+// coller des bandes de bitmap en coute environ un dixieme.
+// Le fond est fourni car chaque bande est composee ENTIERE en RAM interne
+// (fond + glyphes) puis poussee d'un bloc : des ecritures en rafale vers la
+// PSRAM, la ou dessiner pixel par pixel coutait ~30 ms l'image.
+void drawArtCached(const void* key, const char* const* rows, int rowCount,
+                   float glyphHeightNorm, float lineMul,
+                   float dxNorm, float dyNorm, float leanNorm,
+                   uint32_t color, uint32_t bgColor);
+
+// Variante plein cadre SANS sprite : chaque bande est composee en RAM
+// interne et poussee directement au panneau. Le sprite plein ecran vit en
+// PSRAM et sa bande passante bornait compose (~11 ms) comme push (~13 ms) ;
+// ici il ne reste que le SPI. Ne convient qu'au layout qui possede le cadre
+// entier — rien ne peut se dessiner par-dessus. HORS beginFrame/endFrame.
+void drawArtDirect(const void* key, const char* const* rows, int rowCount,
+                   float glyphHeightNorm, float lineMul,
+                   float dxNorm, float dyNorm, float leanNorm,
+                   uint32_t color, uint32_t bgColor);
+
 // Draws text centered on (cx, cy) using the built-in bitmap font.
 // glyphHeightNorm is the rendered glyph cell height as a fraction of the
 // screen's shorter side (the font is blocky/pixelated by nature, which

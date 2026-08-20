@@ -86,6 +86,7 @@ String statusJson() {
     json += "\"screen\":\"" + jsonEscape(diag::getScreen()) + "\",";
     json += "\"fps\":" + String(diag::getFps(), 1) + ",";
     json += "\"draw_us\":" + String(diag::getDrawUs()) + ",";
+    json += "\"push_us\":" + String(diag::getPushUs()) + ",";
     json += "\"net_us\":" + String(diag::getNetUs()) + ",";
     json += "\"total_us\":" + String(diag::getTotalUs()) + ",";
     json += "\"ble_us\":" + String(diag::getBleUs()) + ",";

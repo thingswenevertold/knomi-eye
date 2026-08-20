@@ -34,6 +34,12 @@ uint32_t getBleUs();
 uint32_t getOtaUs();
 uint32_t getAdminUs();
 uint32_t getDrawUs();
+
+// Duree du seul pushSprite vers le panneau, pour separer le cout du dessin
+// de celui du transfert — les trois voies de dessin testees butaient sur le
+// meme plancher, il fallait savoir ou il etait.
+void setPushUs(uint32_t us);
+uint32_t getPushUs();
 uint32_t getNetUs();
 uint32_t getTotalUs();
 

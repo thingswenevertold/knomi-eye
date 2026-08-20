@@ -22,6 +22,10 @@ float getFps() { return fps; }
 
 void setTimings(uint32_t d, uint32_t n, uint32_t t) { drawUs = d; netUs = n; totalUs = t; }
 uint32_t getDrawUs()  { return drawUs; }
+
+static uint32_t pushUs = 0;
+void setPushUs(uint32_t us) { pushUs = us; }
+uint32_t getPushUs() { return pushUs; }
 uint32_t getNetUs()   { return netUs; }
 uint32_t getTotalUs() { return totalUs; }
 

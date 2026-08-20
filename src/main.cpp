@@ -132,7 +132,10 @@ void loop() {
     // frame d'art dure exactement une image rendue. Les deux doivent bouger
     // ensemble : c'est leur rapport, et non leur valeur, qui supprime les
     // sauts.
-    const uint32_t FRAME_MS = 40;
+    // 13 ms par image (~77 Hz). L'art avance par multiples exacts de ce
+    // pas — 39, 117, 130, 260 ms — sinon chaque frame dure tantot N images
+    // tantot N+1 et ce battement se voit comme des sauts.
+    const uint32_t FRAME_MS = 13;
     const uint32_t spent = millis() - now;
     delay(spent >= FRAME_MS ? 1 : FRAME_MS - spent);
 }

@@ -327,7 +327,7 @@ ArtMotion artMotion(uint32_t now) {
     return m;
 }
 
-void drawAsciiArtFace(uint32_t now) {
+void drawAsciiArtFace(uint32_t now, bool direct = false) {
     const asciiart::Anim& a = asciiart::ANIMS[animIndex];
 
     const bool asleep = (mood::get() == mood::State::Asleep);
@@ -383,43 +383,19 @@ void drawAsciiArtFace(uint32_t now) {
     if (f.rowCount == 0) return;
 
     const ArtMotion m = artMotion(now);
-    const float lineH = a.glyphH * (a.lineMul > 0.0f ? a.lineMul : 1.02f);
-    const float y0 = 0.5f - (f.rowCount - 1) * lineH * 0.5f + m.dy;
-    // Largeur d'une cellule : la police interne est en 6x8, donc trois quarts
-    // de la hauteur de glyphe.
-    const float cellW = a.glyphH * 0.75f;
-
-    for (uint8_t i = 0; i < f.rowCount; i++) {
-        const char* row = f.rows[i];
-
-        // L'art est rond dans un cadre carre : plus de la moitie des cellules
-        // sont des espaces de marge. Les faire traverser au moteur de texte
-        // coute sans rien dessiner. On ne rend que la portion encree, decalee
-        // pour retomber exactement ou elle etait.
-        int first = -1, last = -1;
-        for (int c = 0; row[c] != 0; c++) {
-            if (row[c] != ' ') { if (first < 0) first = c; last = c; }
-        }
-        if (first < 0) continue;   // rangee vide : rien a dessiner du tout
-
-        char buf[80];
-        int len = last - first + 1;
-        if (len > (int)sizeof(buf) - 1) len = (int)sizeof(buf) - 1;
-        memcpy(buf, row + first, len);
-        buf[len] = 0;
-
-        // Le rendu est centre sur la chaine fournie. En retirant des marges
-        // asymetriques, le centre se deplace de la moitie de ce qu'on a
-        // enleve de chaque cote.
-        int cols = 0;
-        while (row[cols] != 0) cols++;
-        const float shift = ((first + last + 1) - cols) * 0.5f * cellW;
-
-        // 1 en haut, 0 en bas : l'inclinaison pivote sur la base.
-        const float fromBottom =
-            (f.rowCount > 1) ? (1.0f - (float)i / (float)(f.rowCount - 1)) : 0.0f;
-        display::drawTextCenteredNorm(0.5f + m.dx + m.lean * fromBottom + shift,
-                                      y0 + i * lineH, a.glyphH, buf, colorFace);
+    // La frame est rendue une fois en bitmap 1 bit conserve en PSRAM, puis
+    // collee par bandes — une par rangee, ce qui conserve l'inclinaison.
+    // Le rognage de marges d'avant devient inutile : coller une bande coute
+    // pareil qu'elle soit vide ou pleine, et environ dix fois moins que de
+    // re-rendre la rangee en texte.
+    if (direct) {
+        display::drawArtDirect(f.rows, f.rows, f.rowCount, a.glyphH,
+                               (a.lineMul > 0.0f ? a.lineMul : 1.02f),
+                               m.dx, m.dy, m.lean, colorFace, colorBg);
+    } else {
+        display::drawArtCached(f.rows, f.rows, f.rowCount, a.glyphH,
+                               (a.lineMul > 0.0f ? a.lineMul : 1.02f),
+                               m.dx, m.dy, m.lean, colorFace, colorBg);
     }
 
     lastEyesText = idleEyes;
@@ -596,8 +572,25 @@ void update(uint32_t now) {
         scheduleNextBlink(now);
     }
 
+    // L'art eveille possede le cadre entier et rien ne se dessine dessus :
+    // il part directement au panneau, sans sprite du tout. Le sommeil garde
+    // la voie sprite, ses z se superposant a l'art ; les mimiques aussi,
+    // elles passent par le gabarit generique.
+    if (special == Special::None && layout == LAYOUT_ASCIIART
+        && mood::get() != mood::State::Asleep) {
+        drawAsciiArtFace(now, true);
+        return;
+    }
+
     display::beginFrame();
-    display::fillScreenNorm(colorBg);
+    // Le layout ASCII s'en passe : drawArtCached ecrit chaque rangee du
+    // cadre exactement une fois, fond compris. Remplir d'abord doublait le
+    // cout memoire de l'image entiere.
+    const bool artFullFrame =
+        (special == Special::None) && (layout == LAYOUT_ASCIIART);
+    if (!artFullFrame) {
+        display::fillScreenNorm(colorBg);
+    }
 
     // Les skins en art ASCII gardent leur image pendant une animation : elle
     // EST le personnage, la remplacer par "o o" le fait disparaitre au profit
