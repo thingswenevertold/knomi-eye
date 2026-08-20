@@ -37,7 +37,12 @@ from PIL import Image, ImageDraw, ImageFilter
 COLS, ROWS = 40, 30
 CELL_W, CELL_H = 24, 32
 S_W, S_H = COLS * CELL_W, ROWS * CELL_H   # 960 x 960
-RAMP = " .`',:;!~+=*xo#%8@"
+# Rampe mesuree dans glcdfont.h, la police que LovyanGFX compile :
+# chaque caractere est classe par le nombre de pixels qu'il allume
+# reellement sur le panneau (le : y est plus leger que le ., le *
+# plus dense que le $). Guillemet double et antislash exclus — ils
+# casseraient les chaines C emises.
+RAMP = " :.;-~/^_'`,!|<>(){}j+rvxi=fl1cIJL7otunakwzs%XVCeyq&hKmSPUbdgAO2$8HNWGQZERD*0M#@B"
 
 N_IDLE, N_EXPR = 40, 16
 

@@ -33,7 +33,12 @@ S_W, S_H = COLS * CELL_W, ROWS * CELL_H   # 960 x 960
 
 # Density ramp, darkest to brightest. No double-quote and no backslash: these
 # go straight into C string literals.
-RAMP = " .`',:;!~+=*xo#%8@"
+# Rampe mesuree dans glcdfont.h, la police que LovyanGFX compile :
+# chaque caractere est classe par le nombre de pixels qu'il allume
+# reellement sur le panneau (le : y est plus leger que le ., le *
+# plus dense que le $). Guillemet double et antislash exclus — ils
+# casseraient les chaines C emises.
+RAMP = " :.;-~/^_'`,!|<>(){}j+rvxi=fl1cIJL7otunakwzs%XVCeyq&hKmSPUbdgAO2$8HNWGQZERD*0M#@B"
 
 # Deux fois plus de frames qu'avant, jouees deux fois plus vite : meme duree
 # de boucle, mais deux fois moins de saut entre deux images. Le bus SPI est
