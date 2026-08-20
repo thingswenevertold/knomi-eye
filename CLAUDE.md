@@ -329,6 +329,32 @@ Ce que Samuel veut construire, dans cet ordre :
 3. Rendre les frames en bitmap plutôt qu'en texte, pour dépasser les 30 fps.
    Utile en soi, et ça simplifie le point 1 au lieu de le compliquer.
 
+### Reprendre l'auto-mise-a-jour de l'amont — decision en attente
+
+Son mecanisme : la CI publie `firmware/firmware.bin`, un appui de 5 s sur BOOT
+verifie, un clic confirme, la carte flashe et redemarre. Plus de PC.
+
+**Piege a ne jamais rater : ses URL sont codees en dur sur SON depot.** Copier
+`updater.cpp` tel quel ferait telecharger et flasher son firmware, ce qui
+effacerait tout ce qui est decrit plus haut. Les URL doivent pointer sur le
+depot de Samuel, avec sa propre CI.
+
+Second obstacle, mesure : `raw.githubusercontent.com` renvoie 404 sur un depot
+prive, et son `updater.cpp` n'envoie aucun en-tete d'authentification. Deux
+sorties possibles — passer `tamagang` en public, ou reprendre le motif de son
+`statuspublish.cpp`, qui utilise deja un PAT fin en `Authorization: Bearer`
+sur l'API Contents. Un PAT en flash reste extractible par quiconque tient la
+carte : c'est un arbitrage, pas un detail.
+
+A prendre en meme temps : `identity.cpp`. Sans elle une auto-mise-a-jour
+reinitialise hostname et mots de passe aux placeholders de la CI, donc `zaza`
+redeviendrait `knomi-eye` et la collision de nom reviendrait.
+
+Manquent aussi cote fork : les evenements `VeryLongPress` / `isHeld` /
+`heldForMs` de `button`, et un `FIRMWARE_VERSION` via `PLATFORMIO_BUILD_FLAGS`.
+
+Les questions posees a Leo sont dans `docs-question-maj.md`.
+
 La fusion avec l'amont n'est **pas** prioritaire. Voir `docs-pour-leo.md` :
 les deux correctifs mesurés lui sont utilisables immédiatement, le reste
 attend que le moteur ait pris sa forme.
