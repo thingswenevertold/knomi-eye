@@ -126,7 +126,9 @@ void drawWeatherIcon() {
     weather::Condition c = weather::current();
     if (c == weather::Condition::Unknown) return;
 
-    constexpr float cx = 0.10f, cy = 0.10f;
+    // Kept within the physical round bezel's visible circle (radius ~0.47
+    // from center) — anything further out gets clipped away by the screen.
+    constexpr float cx = 0.22f, cy = 0.22f;
     uint32_t ink = display::rgb(200, 200, 200);
 
     switch (c) {
@@ -451,8 +453,9 @@ void update(uint32_t now) {
 
     // Small red dot, top-right, whenever WiFi isn't connected — independent
     // of skin/layout so it's always visible as a quiet "offline" signal.
+    // Kept within the round bezel's visible circle (radius ~0.47 from center).
     if (WiFi.status() != WL_CONNECTED) {
-        display::fillCircleNorm(0.90f, 0.10f, 0.025f, display::rgb(220, 40, 40));
+        display::fillCircleNorm(0.78f, 0.22f, 0.025f, display::rgb(220, 40, 40));
     }
     drawWeatherIcon();
 

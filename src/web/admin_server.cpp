@@ -2,6 +2,7 @@
 #include "../ui/face.h"
 #include "../diag.h"
 #include "../state.h"
+#include "../weather.h"
 
 #if __has_include("../../include/secrets.h")
 #include "../../include/secrets.h"
@@ -79,7 +80,9 @@ String statusJson() {
     json += "\"skin\":" + String(face::getSkin()) + ",";
     json += "\"energy_pct\":" + String(state::energyPercent()) + ",";
     json += "\"xp\":" + String((unsigned long)state::xp()) + ",";
-    json += "\"age_s\":" + String((unsigned long)state::ageSeconds());
+    json += "\"age_s\":" + String((unsigned long)state::ageSeconds()) + ",";
+    json += "\"weather\":" + String((int)weather::current()) + ",";
+    json += "\"weather_debug\":\"" + jsonEscape(weather::debugInfo()) + "\"";
     json += "}";
     return json;
 }

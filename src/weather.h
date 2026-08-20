@@ -12,5 +12,6 @@ void begin();
 void tick(uint32_t nowMs); // call every loop tick; rate-limits its own fetches
 
 Condition current();
+const char* debugInfo(); // last error / step reached, for troubleshooting
 
 }

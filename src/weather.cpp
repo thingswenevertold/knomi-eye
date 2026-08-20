@@ -19,8 +19,10 @@ weather::Condition condition = weather::Condition::Unknown;
 uint32_t nextGeoAttemptMs = 0;
 uint32_t nextWeatherFetchMs = 0;
 
-bool extractFloat(const String& body, const char* key, float& out) {
-    int idx = body.indexOf(key);
+char debugMsg[56] = "not started";
+
+bool extractFloat(const String& body, const char* key, float& out, int from = 0) {
+    int idx = body.indexOf(key, from);
     if (idx < 0) return false;
     idx += strlen(key);
     while (idx < (int)body.length() && body[idx] == ' ') idx++;
@@ -31,9 +33,9 @@ bool extractFloat(const String& body, const char* key, float& out) {
     return true;
 }
 
-bool extractInt(const String& body, const char* key, int& out) {
+bool extractInt(const String& body, const char* key, int& out, int from = 0) {
     float f;
-    if (!extractFloat(body, key, f)) return false;
+    if (!extractFloat(body, key, f, from)) return false;
     out = (int)f;
     return true;
 }
@@ -51,7 +53,10 @@ weather::Condition codeToCondition(int code) {
 void fetchLocation() {
     HTTPClient http;
     http.setTimeout(4000);
-    if (!http.begin("http://ip-api.com/json/")) return;
+    if (!http.begin("http://ip-api.com/json/")) {
+        snprintf(debugMsg, sizeof(debugMsg), "geo: begin() failed");
+        return;
+    }
     int code = http.GET();
     if (code == 200) {
         String body = http.getString();
@@ -60,7 +65,12 @@ void fetchLocation() {
             latitude = lat;
             longitude = lon;
             haveLocation = true;
+            snprintf(debugMsg, sizeof(debugMsg), "geo ok: %.2f,%.2f", lat, lon);
+        } else {
+            snprintf(debugMsg, sizeof(debugMsg), "geo: parse failed");
         }
+    } else {
+        snprintf(debugMsg, sizeof(debugMsg), "geo: http %d", code);
     }
     http.end();
 }
@@ -73,15 +83,27 @@ void fetchWeather() {
 
     String url = "https://api.open-meteo.com/v1/forecast?latitude=" + String(latitude, 4) +
                  "&longitude=" + String(longitude, 4) + "&current_weather=true";
-    if (!http.begin(client, url)) return;
+    if (!http.begin(client, url)) {
+        snprintf(debugMsg, sizeof(debugMsg), "wx: begin() failed");
+        return;
+    }
 
     int code = http.GET();
     if (code == 200) {
         String body = http.getString();
+        // "weathercode" appears twice: once as a units-label string inside
+        // current_weather_units, once as the actual number inside
+        // current_weather. Search only from the latter block onward.
+        int cwIdx = body.indexOf("\"current_weather\":");
         int weatherCode;
-        if (extractInt(body, "\"weathercode\":", weatherCode)) {
+        if (cwIdx >= 0 && extractInt(body, "\"weathercode\":", weatherCode, cwIdx)) {
             condition = codeToCondition(weatherCode);
+            snprintf(debugMsg, sizeof(debugMsg), "wx ok: code %d", weatherCode);
+        } else {
+            snprintf(debugMsg, sizeof(debugMsg), "wx: len=%d [%s]", body.length(), body.substring(0, 24).c_str());
         }
+    } else {
+        snprintf(debugMsg, sizeof(debugMsg), "wx: http %d", code);
     }
     http.end();
 }
@@ -114,6 +136,10 @@ void tick(uint32_t nowMs) {
 
 Condition current() {
     return condition;
+}
+
+const char* debugInfo() {
+    return debugMsg;
 }
 
 }
