@@ -52,6 +52,7 @@ DEFAULT_RENDER = {
     "floor": 0.10, "amp": 0.80, "levels": 9,
     "eyeRx": 0.62, "eyeRy": 1.25,
     "contrast": 1.00, "bright": 0.00, "blur": 0.75, "edges": 0.50,
+    "plate": 0.70,
 }
 
 
@@ -334,6 +335,27 @@ def base_image(src, zones, render=None):
         m = ellipse_mask((ax0 + ax1) / 2, (ay0 + ay1) / 2,
                          (ax1 - ax0) * 0.90, (ay1 - ay0) * 0.80, S_W, S_H) * body
         img = img * (1.0 - m * 0.85) + 0.60 * m * 0.85
+
+    # --- plage faciale ------------------------------------------------------
+    # La texture de fourrure s'ecrasait contre les yeux et les noyait. Les
+    # visages dessines font l'inverse : un aplat calme autour des yeux, la
+    # texture reste a l'exterieur. Bord tres fondu, pour que la frontiere ne
+    # declenche pas de traits parasites.
+    if R["plate"] > 0.01:
+        face_pts = []
+        for k_f in ("eye_left", "eye_right", "nose"):
+            if k_f in mapped:
+                face_pts += mapped[k_f]
+        if face_pts:
+            fx0, fy0, fx1, fy1 = bbox(face_pts)
+            pm = ellipse_mask((fx0 + fx1) / 2, (fy0 + fy1) / 2,
+                              (fx1 - fx0) * 0.72, (fy1 - fy0) * 0.85, S_W, S_H)
+            pm = np.asarray(Image.fromarray((pm * 255).astype(np.uint8)).filter(
+                ImageFilter.GaussianBlur(radius=CELL_W * 2.0)),
+                dtype=np.float32) / 255.0
+            pm = pm * body * R["plate"]
+            flat_v = R["floor"] + R["amp"] * 0.45
+            img = img * (1.0 - pm) + flat_v * pm
 
     # --- yeux --------------------------------------------------------------
     # Agrandis par rapport au trace : de grands yeux ronds font la creature

@@ -141,6 +141,8 @@ const SETTINGS = [
   { id: 'blur',    label: 'FLOU',        min: 0,   max: 250, def: 75, div: 100 },
   { id: 'edges',   label: 'TRAITS',      min: 0,   max: 100, def: 50, div: 100,
     help: 'contours et aretes en / | - ' },
+  { id: 'plate',   label: 'VISAGE CALME', min: 0,  max: 100, def: 70, div: 100,
+    help: 'aplat autour des yeux' },
 ];
 
 const RAMP = " :.;-~/^_'`,!|<>(){}j+rvxi=fl1cIJL7otunakwzs%XVCeyq&hKmSPUbdgAO2$8HNWGQZERD*0M#@B";
@@ -358,6 +360,27 @@ function preview() {
     const s = place(snout), [sx0, sy0, sx1, sy1] = bboxOf(s);
     paint(ellipseMask((sx0 + sx1) / 2, (sy0 + sy1) / 2,
                       (sx1 - sx0) * 0.90, (sy1 - sy0) * 0.80), 0.60, 0.85);
+  }
+
+  // Plage faciale : un aplat calme autour des yeux, la texture reste a
+  // l'exterieur — sans lui la fourrure s'ecrase contre les yeux et les noie.
+  if (cfg.plate > 0.01) {
+    const facePts = [].concat(zoneOf('eye_left') || [], zoneOf('eye_right') || [],
+                              zoneOf('nose') || []);
+    if (facePts.length) {
+      const f = place(facePts), fb = bboxOf(f);
+      const pm = ellipseMask((fb[0] + fb[2]) / 2, (fb[1] + fb[3]) / 2,
+                             (fb[2] - fb[0]) * 0.72, (fb[3] - fb[1]) * 0.85);
+      const flatV = cfg.floor + cfg.amp * 0.45;
+      // Bord fondu approche par une seconde ellipse plus large a mi-force.
+      const pm2 = ellipseMask((fb[0] + fb[2]) / 2, (fb[1] + fb[3]) / 2,
+                              (fb[2] - fb[0]) * 0.86, (fb[3] - fb[1]) * 1.00);
+      for (let i = 0; i < out.length; i++) {
+        if (body[i] < 0.5) continue;
+        const k = (pm[i] * 1.0 + pm2[i] * 0.4) / 1.4 * cfg.plate;
+        if (k > 0) out[i] = out[i] * (1 - k) + flatV * k;
+      }
+    }
   }
 
   // Yeux, agrandis : a cette resolution un oeil fidele ne ferait qu'une
