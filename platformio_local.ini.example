@@ -5,3 +5,11 @@
 [env:esp32dev-ota]
 upload_flags =
     --auth=REMPLIR-ICI
+
+; Optionnel, et seulement si plusieurs adaptateurs serie sont branches en
+; meme temps : PlatformIO detecte le port tout seul le reste du temps.
+; "py -3.12 tools/find_port.py --ini" affiche le bloc pret a coller.
+;
+; [env:esp32dev]
+; upload_port = COM4
+; monitor_port = COM4

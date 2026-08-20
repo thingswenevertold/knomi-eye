@@ -63,7 +63,21 @@ téléchargement. Puis :
 py -3.12 -m platformio run -e esp32dev -t upload
 ```
 
-Ajustez `upload_port` / `monitor_port` au bon port COM.
+Le port COM est détecté tout seul, il n'y a rien à configurer. Pour vérifier
+lequel porte la carte avant de flasher, son numéro changeant d'une machine à
+l'autre :
+
+```bash
+py -3.12 tools/find_port.py
+```
+
+Et si l'écran reste noir alors que la LED rouge est allumée, la carte est
+peut-être coincée en ROM download mode plutôt que cassée. Ce test le dit en
+cinq secondes, sans rien modifier :
+
+```bash
+py -3.12 tools/find_port.py --check
+```
 
 ## 5. Sans réseau, tout passe par le Bluetooth
 
