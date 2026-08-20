@@ -77,22 +77,46 @@ void loop() {
 
     diag::setScreen(screen == Screen::Face ? "face" : "status");
 
+    const uint32_t tDraw0 = micros();
     if (screen == Screen::Face) {
         face::update(now);
     } else {
         status::update(now, statusPage);
     }
+    const uint32_t tDraw1 = micros();
 
     ble::handle(now);
+    const uint32_t tBle = micros();
     ota::handle();
+    const uint32_t tOta = micros();
     if (adminActive) {
         admin::handle(now);
     }
+    const uint32_t tNet1 = micros();
+    diag::setNetSplit(tBle - tDraw1, tOta - tBle, tNet1 - tOta);
+    diag::setTimings(tDraw1 - tDraw0, tNet1 - tDraw1, tNet1 - tDraw0);
     // Cadence sur la duree reelle de la frame, au lieu d'ajouter 16 ms a
     // celle-ci : le rendu coute deja plusieurs millisecondes, donc le "~60 fps"
     // annonce n'etait jamais atteint, et l'intervalle variait avec la charge.
     // On garde toujours au moins un delay(1) pour que WiFi et BLE aient leur
     // tour — les affamer coute bien plus cher que quelques images.
+    // Cadence observee, lissee sur environ une seconde. Mesuree avant le
+    // delai d'attente, donc c'est bien le cout reel d'une image.
+    {
+        static uint32_t lastFrameMs = 0;
+        static float smoothed = 0.0f;
+        const uint32_t end = millis();
+        if (lastFrameMs != 0) {
+            const uint32_t d = end - lastFrameMs;
+            if (d > 0) {
+                const float inst = 1000.0f / (float)d;
+                smoothed = (smoothed == 0.0f) ? inst : (smoothed * 0.94f + inst * 0.06f);
+                diag::setFps(smoothed);
+            }
+        }
+        lastFrameMs = end;
+    }
+
     const uint32_t FRAME_MS = 11;   // ~90 images par seconde, la dalle suit
     const uint32_t spent = millis() - now;
     delay(spent >= FRAME_MS ? 1 : FRAME_MS - spent);

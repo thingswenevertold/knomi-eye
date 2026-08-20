@@ -34,8 +34,12 @@ S_W, S_H = COLS * CELL_W, ROWS * CELL_H   # 960 x 960
 # go straight into C string literals.
 RAMP = " .`',:;!~+=*xo#%8@"
 
-N_FRAMES = 40                # ~4.4 s loop at 110 ms
-N_SLEEP = 16
+# Deux fois plus de frames qu'avant, jouees deux fois plus vite : meme duree
+# de boucle, mais deux fois moins de saut entre deux images. Le bus SPI est
+# deja sature a ~11 ms par plein ecran, donc la fluidite ne peut plus venir
+# de la cadence — seulement de la finesse de l'animation elle-meme.
+N_FRAMES = 80                # ~4.4 s de boucle a 55 ms
+N_SLEEP = 24
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "..", "src", "assets")
@@ -301,7 +305,7 @@ def build_sleep():
 # Boucles courtes, jouees UNE fois pendant une animation nommee au lieu de
 # tourner en rond. C'est ce qui permet au chat de faire lui-meme la mimique,
 # au lieu d'etre remplace a l'ecran par un visage generique.
-N_EXPR = 12
+N_EXPR = 24
 
 
 def ease(u):

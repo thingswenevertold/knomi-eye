@@ -232,7 +232,12 @@ function connectWs() {
       var d = JSON.parse(ev.data);
       if (d.eyes) $('eyes').textContent = d.eyes;
       if (d.mouth) $('mouth').textContent = d.mouth;
-      if (d.mood) $('mood').textContent = d.mood.toUpperCase();
+      if (d.mood) {
+        // La cadence a cote de l'humeur : c'est la seule facon de savoir si
+        // une animation qui parait saccadee vient du dessin ou du reseau.
+        $('mood').textContent = d.mood.toUpperCase() +
+          (typeof d.fps === 'number' ? '  ·  ' + d.fps.toFixed(0) + ' fps' : '');
+      }
       if (typeof d.skin === 'number' && d.skin !== skinIndex) markSkin(d.skin);
       setLink(true);
     } catch (e) { /* trame partielle : la suivante corrigera */ }

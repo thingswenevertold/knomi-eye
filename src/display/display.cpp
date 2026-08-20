@@ -16,8 +16,23 @@ void begin() {
 
     side = lcd.width() < lcd.height() ? lcd.width() : lcd.height();
 
-    // Sprite lives in PSRAM: full-frame buffer avoids flicker/tearing and
-    // keeps the panel push as the single point of contact with the bus.
+    // Tampon plein ecran : il evite le scintillement et fait du push la seule
+    // interaction avec le bus.
+    //
+    // Il vivait en PSRAM, ce qui coutait tres cher : chaque pixel traverse le
+    // bus QSPI deux fois, une fois ecrit pendant le dessin et une fois relu
+    // pour le push. Mesure a ~25 images par seconde alors que le SPI du
+    // panneau, lui, en autorise pres de 90.
+    //
+    // On tente donc la RAM interne d'abord. 240*240*2 = 115 Ko, ce qui passe
+    // tant que WiFi, BLE et le serveur web laissent la place — et sinon on
+    // retombe sur la PSRAM, parce qu'un ecran lent vaut mieux qu'un ecran mort.
+    //
+    // Essai fait, et abandonne : mis en RAM interne, le sprite n'a rien
+    // gagne — cadence identique au dixieme pres — tout en consommant 115 Ko
+    // du tas, ce qui a suffi a faire echouer une mise a jour OTA en cours de
+    // transfert. Le goulot est ailleurs. La PSRAM reste donc le bon choix
+    // ici : elle laisse le tas aux radios et au serveur web.
     frame.setPsram(true);
     frame.setColorDepth(16);
     frame.createSprite(lcd.width(), lcd.height());
