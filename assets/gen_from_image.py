@@ -144,55 +144,136 @@ EMPHASIS = {
 }
 
 
+def centroid(points):
+    return (sum(p[0] for p in points) / len(points),
+            sum(p[1] for p in points) / len(points))
+
+
+def ellipse_mask(cx, cy, rx, ry, w, h):
+    im = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(im).ellipse([(cx - rx) * w, (cy - ry) * h,
+                               (cx + rx) * w, (cy + ry) * h], fill=255)
+    return np.asarray(im, dtype=np.float32) / 255.0
+
+
 def base_image(src, zones):
+    """Compose la creature : photo posterisee, traits redessines.
+
+    Le manifeste n'est pas isotrope — l'editeur normalise x sur la largeur
+    et y sur la hauteur — donc tout passe par les pixels avant d'atteindre
+    le panneau, sinon une tete carree ressort etiree.
+    """
     sil = zones.get("silhouette")
     if not sil:
         raise SystemExit("le manifeste n'a pas de silhouette")
 
-    x0, y0, x1, y1 = bbox(sil)
     W, H = src.size
-    side = max((x1 - x0) * W, (y1 - y0) * H) * 1.06
-    cx, cy = (x0 + x1) / 2 * W, (y0 + y1) / 2 * H
-    box = (int(cx - side / 2), int(cy - side / 2),
-           int(cx + side / 2), int(cy + side / 2))
-    crop = src.crop(box).resize((S_W, S_H), Image.LANCZOS)
 
-    # Flouter AVANT de reduire : la fourrure a une texture qui survit au
-    # moyennage par blocs et se convertit en bruit.
-    blurred = crop.filter(ImageFilter.GaussianBlur(radius=CELL_W * 0.85))
+    def to_px(points):
+        return [(p[0] * W, p[1] * H) for p in points]
 
-    def remap(points):
-        return [[(p[0] * W - box[0]) / side, (p[1] * H - box[1]) / side]
+    sil_px = to_px(sil)
+    xs = [p[0] for p in sil_px]
+    ys = [p[1] for p in sil_px]
+    bw, bh = max(xs) - min(xs), max(ys) - min(ys)
+    if bw <= 1 or bh <= 1:
+        raise SystemExit("silhouette degeneree")
+
+    # Inscrire par la diagonale : le panneau est rond, une forme calee sur
+    # sa largeur laisserait deux bandes vides en haut et en bas.
+    FILL = 0.98
+    field = math.hypot(bw, bh) / FILL
+    ccx, ccy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    box = (ccx - field / 2, ccy - field / 2, ccx + field / 2, ccy + field / 2)
+
+    def place(points):
+        return [[(p[0] * W - box[0]) / field, (p[1] * H - box[1]) / field]
                 for p in points]
 
-    mapped = {k: remap(v) for k, v in zones.items()}
-    arr = np.asarray(blurred, dtype=np.float32) / 255.0
+    mapped = {kind: place(pts) for kind, pts in zones.items()}
+    body = poly_mask(mapped["silhouette"], S_W, S_H)
 
-    # Aplatir l'eclairage en divisant par une version tres floue : retire le
-    # degrade d'illumination, garde le contraste local, c'est-a-dire la forme.
+    # --- la photo, posterisee ---------------------------------------------
+    crop = src.crop((int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+    crop = crop.resize((S_W, S_H), Image.LANCZOS)
+
+    photo = np.asarray(crop.filter(ImageFilter.GaussianBlur(radius=CELL_W * 0.75)),
+                       dtype=np.float32) / 255.0
+    # Aplatir l'eclairage, sinon la conversion lit le degrade d'illumination
+    # plutot que l'animal.
     flat = np.asarray(crop.filter(ImageFilter.GaussianBlur(radius=S_W * 0.16)),
                       dtype=np.float32) / 255.0
-    arr = arr / np.maximum(flat, 0.06)
-    arr = arr / max(float(arr.max()), 1e-6)
+    photo = photo / np.maximum(flat, 0.06)
+    photo = photo / max(float(photo.max()), 1e-6)
 
-    mask = poly_mask(mapped["silhouette"], S_W, S_H)
-    arr = arr * mask
-
-    ink = arr[mask > 0.5]
+    ink = photo[body > 0.5]
     if ink.size:
-        lo, hi = np.percentile(ink, 10), np.percentile(ink, 92)
+        lo, hi = np.percentile(ink, 8), np.percentile(ink, 94)
         if hi - lo > 0.02:
-            arr = np.clip((arr - lo) / (hi - lo), 0.0, 1.0) * mask
+            photo = np.clip((photo - lo) / (hi - lo), 0.0, 1.0)
 
-    for kind, amount in EMPHASIS.items():
-        if kind not in mapped:
+    # Quatre tons suffisent a decrire une tete ; les variations plus fines
+    # ne survivaient pas a la conversion et n'ajoutaient que du bruit.
+    LEVELS = 5
+    photo = np.round(photo * (LEVELS - 1)) / (LEVELS - 1)
+
+    # Pose basse et resserree : la plupart des cellules doivent rester
+    # creuses, sinon le panneau bave en une masse blanche.
+    img = (0.24 + 0.42 * photo) * body
+
+    # Liseré sombre au bord, pour que la silhouette morde sur le fond.
+    inner = poly_mask([[0.5 + (p[0] - 0.5) * 0.94, 0.5 + (p[1] - 0.5) * 0.94]
+                       for p in mapped["silhouette"]], S_W, S_H)
+    rim = np.clip(body - inner, 0.0, 1.0)
+    img = img * (1.0 - rim)
+
+    # --- museau clair ------------------------------------------------------
+    snout = []
+    for k_s in ("nose", "mouth"):
+        if k_s in mapped:
+            snout += mapped[k_s]
+    if snout:
+        ax0, ay0, ax1, ay1 = bbox(snout)
+        m = ellipse_mask((ax0 + ax1) / 2, (ay0 + ay1) / 2,
+                         (ax1 - ax0) * 0.90, (ay1 - ay0) * 0.80, S_W, S_H) * body
+        img = img * (1.0 - m * 0.85) + 0.60 * m * 0.85
+
+    # --- yeux --------------------------------------------------------------
+    # Agrandis par rapport au trace : de grands yeux ronds font la creature
+    # mignonne, et a 40x30 un oeil fidele ne ferait qu'une cellule et demie.
+    drawn_eyes = {}
+    for k_eye in ("eye_left", "eye_right"):
+        if k_eye not in mapped:
             continue
-        zm = poly_mask(mapped[kind], S_W, S_H)
-        zm = np.asarray(Image.fromarray((zm * 255).astype(np.uint8)).filter(
-            ImageFilter.GaussianBlur(radius=CELL_W * 0.5)), dtype=np.float32) / 255.0
-        arr = np.clip(arr + amount * zm, 0.0, 1.0) * mask
+        ex0, ey0, ex1, ey1 = bbox(mapped[k_eye])
+        ecx, ecy = (ex0 + ex1) / 2, (ey0 + ey1) / 2
+        rx = max((ex1 - ex0) * 0.62, 0.070)
+        ry = max((ey1 - ey0) * 1.25, 0.070)
 
-    return arr, mapped
+        white = ellipse_mask(ecx, ecy, rx, ry, S_W, S_H)
+        img = img * (1.0 - white) + 1.0 * white
+        pup = ellipse_mask(ecx, ecy + ry * 0.08, rx * 0.50, ry * 0.62, S_W, S_H)
+        img = img * (1.0 - pup) + 0.04 * pup
+        sh = ellipse_mask(ecx - rx * 0.34, ecy - ry * 0.34,
+                          rx * 0.18, ry * 0.20, S_W, S_H)
+        img = img * (1.0 - sh) + 1.0 * sh
+
+        # Les deformations d'animation portent sur l'oeil DESSINE, plus gros
+        # que le trace d'origine.
+        drawn_eyes[k_eye] = [[ecx + rx * 1.15 * math.cos(a),
+                              ecy + ry * 1.25 * math.sin(a)]
+                             for a in [i * math.pi / 8 for i in range(16)]]
+
+    # --- nez ---------------------------------------------------------------
+    if "nose" in mapped:
+        nx0, ny0, nx1, ny1 = bbox(mapped["nose"])
+        m = ellipse_mask((nx0 + nx1) / 2, (ny0 + ny1) / 2,
+                         (nx1 - nx0) * 0.34, (ny1 - ny0) * 0.28, S_W, S_H)
+        img = img * (1.0 - m) + 0.03 * m
+
+    img = np.clip(img, 0.0, 1.0) * body
+    mapped.update(drawn_eyes)
+    return img, mapped
 
 
 # --- jeux de frames -------------------------------------------------------
