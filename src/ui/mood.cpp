@@ -33,9 +33,12 @@ struct Tuning {
 // just reads from it.
 const Tuning TUNING[] = {
     /* Engaged */ {  1500,  3500,   3000,   7000, 1.00f, "engaged" },
-    /* Idle    */ {  2500,  6000,  20000,  45000, 0.70f, "idle"    },
+    // Idle resserre : a 20-45 s entre deux mimiques, la creature semblait
+    // absente. 8-16 s la garde vivante sans qu'elle gesticule, et l'energie
+    // remontee anime davantage la respiration et la derive du regard.
+    /* Idle    */ {  2000,  5000,   8000,  16000, 0.85f, "idle"    },
     /* Uneasy  */ {  1200,  3000,  12000,  25000, 0.80f, "uneasy"  },
-    /* Bored   */ {  4000,  9000,  45000,  90000, 0.40f, "bored"   },
+    /* Bored   */ {  4000,  9000,  30000,  60000, 0.45f, "bored"   },
     /* Asleep  */ { 20000, 40000, 120000, 240000, 0.12f, "asleep"  },
     /* Lost    */ {  2000,  5000,  15000,  30000, 0.60f, "lost"    },
 };
