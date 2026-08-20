@@ -44,10 +44,17 @@ int widthPx()  { return lcd.width(); }
 int heightPx() { return lcd.height(); }
 
 void beginFrame() {
-    // no-op: sprite is persistent, cleared by fillScreenNorm() each frame
+    // Le sprite est persistant, fillScreenNorm() le nettoie a chaque image.
+    //
+    // startWrite() maintient la transaction ouverte pour toute l'image. L'art
+    // ASCII dense dessine 30 chaines de 40 caracteres, soit 1200 glyphes par
+    // image : sans cela chaque appel de dessin refait son ouverture et sa
+    // fermeture, et c'est cette repetition qui coute, pas les pixels.
+    frame.startWrite();
 }
 
 void endFrame(uint32_t /*backgroundColor*/) {
+    frame.endWrite();
     frame.pushSprite(0, 0);
 }
 

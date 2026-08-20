@@ -117,7 +117,19 @@ void loop() {
         lastFrameMs = end;
     }
 
-    const uint32_t FRAME_MS = 11;   // ~90 images par seconde, la dalle suit
+    // 40 ms, soit 25 images par seconde regulieres.
+    //
+    // Viser plus haut ne servait a rien : le dessin coute 32 a 35 ms mesures,
+    // donc la condition ci-dessous etait toujours vraie et il n'y avait en
+    // pratique aucune regulation — l'intervalle suivait le temps de dessin et
+    // sautillait avec lui. Un intervalle stable un peu plus long se voit
+    // beaucoup mieux qu'un intervalle nerveux un peu plus court.
+    //
+    // Cette valeur est aussi celle du frameMs de l'art ASCII, pour qu'une
+    // frame d'art dure exactement une image rendue. Les deux doivent bouger
+    // ensemble : c'est leur rapport, et non leur valeur, qui supprime les
+    // sauts.
+    const uint32_t FRAME_MS = 40;
     const uint32_t spent = millis() - now;
     delay(spent >= FRAME_MS ? 1 : FRAME_MS - spent);
 }
