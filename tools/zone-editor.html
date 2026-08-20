@@ -50,10 +50,17 @@
             max-height: 190px; overflow: auto; white-space: pre-wrap; }
   .warn { border: 1px solid #3a2410; padding: 10px; font-size: 12px;
           color: #c8763a; line-height: 1.5; border-radius: 2px; margin: 0 0 10px; }
+  #banner { padding: 9px 12px; margin: 0 0 14px; border-radius: 2px;
+            font-size: 12px; line-height: 1.5; }
+  #banner.ok { background: #14200f; border: 1px solid #2e5a1e; color: #8fd46a; }
+  #banner.ko { background: #2a1206; border: 1px solid #7a3a10; color: #ffb066; }
+  #status { padding: 8px 10px; margin: 0 0 8px; border: 1px solid #3a2410;
+            background: #14100c; font-size: 12px; color: #ffb066; min-height: 2.6em; }
 </style>
 </head>
 <body>
 
+<div id="banner"></div>
 <h1>Détoureur de créature</h1>
 <p class="sub">
   Charge une image, détoure la silhouette, puis marque les zones qui devront
@@ -95,6 +102,7 @@
       fonctionne. Pour tout piloter d'ici, lance
       <code>py -3.12 tools/studio.py</code>.
     </div>
+    <div id="status">Prêt.</div>
     <button class="wide primary" id="save">1 &middot; ENREGISTRER</button>
     <button class="wide" id="gen">2 &middot; GÉNÉRER L'ART</button>
     <button class="wide" id="dep">3 &middot; ENVOYER À ZAZA</button>
@@ -436,6 +444,9 @@ function log(msg, keep) {
   const el = $('log');
   el.textContent = keep ? el.textContent + '\n' + msg : msg;
   el.scrollTop = el.scrollHeight;
+  // La ligne d'etat est au-dessus des boutons, donc toujours visible :
+  // le journal, lui, tombait sous le pli et personne ne le voyait.
+  $('status').textContent = msg.split('\n')[0];
 }
 
 function manifestName() {
@@ -497,18 +508,39 @@ async function doDeploy() {
   return !!r.ok;
 }
 
-$('save').addEventListener('click', async () => { busy(true); await doSave(); busy(false); });
-$('gen').addEventListener('click', async () => { busy(true); await doGen(); busy(false); });
-$('dep').addEventListener('click', async () => { busy(true); await doDeploy(); busy(false); });
-$('all').addEventListener('click', async () => {
-  busy(true);
-  if (await doSave() && await doGen()) await doDeploy();
-  busy(false);
-});
+// Le try/finally compte : sans lui, une action qui echoue laisserait les
+// boutons desactives pour de bon, et la page paraitrait morte.
+function action(fn) {
+  return async () => {
+    busy(true);
+    log('En cours...');
+    try { await fn(); }
+    catch (e) { log('Erreur : ' + e.message); }
+    finally { busy(false); }
+  };
+}
 
-if (!STUDIO) {
+$('save').addEventListener('click', action(doSave));
+$('gen').addEventListener('click', action(doGen));
+$('dep').addEventListener('click', action(doDeploy));
+$('all').addEventListener('click', action(async () => {
+  if (await doSave() && await doGen()) await doDeploy();
+}));
+
+const banner = $('banner');
+if (STUDIO) {
+  banner.className = 'ok';
+  banner.textContent = 'Studio connecté (' + location.host + ') — les trois actions sont disponibles.';
+} else {
+  banner.className = 'ko';
+  banner.innerHTML = 'Page ouverte en fichier local : <b>les boutons Générer et ' +
+    'Envoyer ne feront rien</b>. Lance <code>py -3.12 tools/studio.py</code> ' +
+    'puis ouvre <b>http://localhost:8010</b>.';
   $('offline').hidden = false;
-  ['gen', 'dep', 'all'].forEach(id => { $(id).disabled = true; });
+  ['gen', 'dep', 'all'].forEach(id => {
+    $(id).disabled = true;
+    $(id).title = 'Indisponible en file:// — passe par le studio.';
+  });
   $('save').textContent = 'TÉLÉCHARGER LE MANIFESTE';
 }
 
