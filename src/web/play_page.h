@@ -75,6 +75,10 @@ const char HTML[] PROGMEM = R"HTML(<!doctype html>
   input[type=range] { width: 100%; accent-color: #ff5a00; height: 40px; }
   .rowlbl { display: flex; justify-content: space-between; font-size: 12px;
             color: #c8763a; margin-bottom: 2px; }
+  .studio { display: flex; align-items: center; justify-content: center;
+            min-height: 48px; background: #221708; border: 1px solid #3a2410;
+            color: #c8763a; border-radius: 3px; text-decoration: none;
+            font-size: 13px; }
 </style>
 </head>
 <body>
@@ -103,6 +107,15 @@ const char HTML[] PROGMEM = R"HTML(<!doctype html>
   <input type="range" min="10" max="255" id="bri">
   <div class="rowlbl"><span>VITESSE</span><span id="spd-val">--</span></div>
   <input type="range" min="25" max="400" step="5" id="spd">
+
+  <!-- Revele seulement si le studio repond sur cette machine. Un lien fixe
+       serait mort en permanence sur un telephone, ou localhost designe le
+       telephone lui-meme. -->
+  <div id="studio-box" hidden>
+    <h2>CRÉATURE</h2>
+    <a class="studio" href="http://localhost:8010" target="_blank" rel="noopener">
+      DÉTOURER UNE CRÉATURE</a>
+  </div>
 
 </div>
 <script>
@@ -250,8 +263,25 @@ function connectWs() {
   ws.onerror = lost;
 }
 
+// Le studio tourne-t-il sur la machine qui affiche cette page ? Une sonde en
+// no-cors suffit : elle aboutit si quelque chose repond sur le port, et echoue
+// si la connexion est refusee. On ne lit pas la reponse, on ne veut savoir que
+// ca — donc pas besoin que le studio expose des en-tetes CORS.
+//
+// Ainsi le bouton apparait sur le poste de dev et reste absent du telephone,
+// au lieu d'y proposer un lien qui ne menerait nulle part.
+function probeStudio() {
+  var ctl = new AbortController();
+  var t = setTimeout(function () { ctl.abort(); }, 1500);
+  fetch('http://localhost:8010/targets', { mode: 'no-cors', signal: ctl.signal })
+    .then(function () { $('studio-box').hidden = false; })
+    .catch(function () { /* absent : on ne montre rien */ })
+    .then(function () { clearTimeout(t); });
+}
+
 boot();
 connectWs();
+probeStudio();
 </script>
 </body>
 </html>
