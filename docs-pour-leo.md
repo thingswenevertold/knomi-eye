@@ -18,7 +18,8 @@ Son dépôt : **https://github.com/saucissefarciehumaine-prog/tamagang**,
 branche `main`. Il t'a **invité en collaborateur** — l'invitation t'attend sur
 GitHub. Le dépôt reste privé, tu y auras un accès en écriture.
 
-Parti de ton commit initial `c282c43` ce matin, 13 commits depuis.
+Parti de ton commit initial `c282c43`, **39 commits depuis**. Une branche
+`samuel/tamagang` te le pose chez toi si tu veux le parcourir sans cloner.
 
 ---
 
@@ -125,18 +126,36 @@ Testées et écartées sur la carte, pour que tu ne les refasses pas :
    Aucun gain, le coût des 1200 glyphes n'est pas dans l'ouverture des
    transactions.
 
-Le vrai plafond : **33 ms de dessin par image**, soit 30 images par seconde,
-dépensées à rendre l'art comme du texte glyphe par glyphe — 30 lignes de 40
-caractères. Le franchir demande de pré-calculer les frames en bitmap et de ne
-faire qu'un blit par image.
+### Le plafond est tombé : 75 images par seconde
 
-**Sauts d'image.** `delay(16)` s'ajoute au temps de rendu au lieu de le
+Ce document annonçait 30 fps et un mur dans le rendu de texte. **Les deux
+étaient faux**, et le chemin vaut d'être écrit puisqu'il te concerne
+directement.
+
+1. Le moteur de texte n'était **pas** le goulot. Frames pré-rendues en bitmap
+   1 bit, collées par `drawBitmap` : aucun gain. Par `pushImage` : pire.
+   Toutes les voies d'API écrivent pixel par pixel.
+2. Une sonde `push_us` a séparé dessin et transfert : l'essentiel des ~20 ms
+   de dessin était le **`fillScreen`** — 115 Ko de PSRAM réécrits à chaque
+   image pour des pixels recouverts juste après. Supprimé : chaque rangée du
+   cadre est écrite exactement une fois.
+3. Le plancher restant, 11 ms de composition et 13 ms de push, était la
+   **bande passante de la PSRAM** où vit le sprite plein écran, dans les deux
+   sens.
+4. L'art éveillé court-circuite donc le sprite : composition de chaque bande
+   en RAM interne, DMA double tampon, couleurs pré-permutées, droit au
+   panneau. Il ne reste que le SPI — **12 ms, le plafond physique du bus**.
+
+Le sprite demeure pour tout le reste : mimiques, sommeil, statuts, autres
+layouts. Le sommeil à 25 fps ne dérange personne, elle dort.
+
+**Sauts d'image.** Ton `delay(16)` s'ajoute au temps de rendu au lieu de le
 compenser, donc les « ~60 fps » du commentaire ne sont jamais atteints et
 l'intervalle suit le temps de dessin. Pire : si la période de l'animation
 n'est pas un multiple exact de la période de rendu, chaque frame dure tantôt
-une image tantôt deux, et ce battement se voit comme des sauts. Le fork pace à
-40 ms fixes avec un `frameMs` d'art à 40 ms — une frame d'art par image
-affichée.
+N images tantôt N+1, et ce battement se voit. Le fork pace à **13 ms** et les
+périodes d'art en sont des multiples exacts — 39, 117, 130, 260 ms. Les deux
+doivent bouger ensemble : c'est leur rapport qui compte, pas leur valeur.
 
 ### Astuce de diagnostic sans mot de passe
 
@@ -163,12 +182,50 @@ Des modules entiers, pas des retouches. Ton `master` n'a rien de tout ça.
 | `src/ui/asciiart.cpp/.h` | Moteur d'art ASCII multi-lignes animé, avec jeux d'expressions. |
 | `src/web/play_page.h` | App téléphone servie sur `/play`, même origine donc Basic Auth repris par le navigateur. Installable en icône d'accueil. |
 | `tools/ble-remote.html` | Télécommande Web Bluetooth, provisionnement WiFi compris. |
-| `tools/presence-windows.ps1` | La créature dort quand la session PC se verrouille ou passe en veille. |
+| `tools/presence-windows.ps1` | La créature dort quand la session PC se verrouille ou passe en veille. Cinq déclencheurs, dont un battement — voir plus bas. |
+| `tools/studio.py` + `zone-editor.html` | **Studio créature** : une photo détourée devient un skin complet, sans toucher au firmware. |
+| `assets/gen_from_image.py` | Six jeux de frames par **déformation des zones tracées** — aucun dessin par créature. |
+
+### Le studio, puisque c'est le cœur du sujet
+
+Un serveur local sert un éditeur de zones — silhouette, oreilles, yeux,
+sourcils, bouche, nez — avec un aperçu 40x30 fidèle, puis trois actions :
+enregistrer, générer, envoyer.
+
+`gen_from_image.py` produit idle avec clignements, sommeil, clin d'œil,
+surprise, contentement et colère, **en déformant les zones tracées**. Rien
+n'est redessiné par créature : un œil s'écrase vers son axe pour cligner, une
+bouche s'étire, un sourcil descend. Ça marche donc sur n'importe quelle image.
+
+Il tient `assets/creatures/registry.json`, **append-only** pour la raison que
+ton README donne, et émet lui-même le câblage `src/assets/photo_*.inc|h`.
+
+Deux recettes de rendu ont coûté cher et méritent d'être connues :
+postérisation par **quantiles** — à bandes de population égale, sinon la
+fourrure écrase l'histogramme et tout sort monochrome — et éclairage aplati
+par division par un flou large, sans quoi la conversion lit le dégradé
+d'illumination plutôt que l'animal. La rampe de 81 caractères est **mesurée
+dans `glcdfont.h`** : sur cette police `:` est plus léger que `.` et `*` plus
+dense que `$`.
+
+### Retirer une créature sans casser les index
+
+Le pendant du problème que ton README signale. Supprimer une entrée est
+impossible — l'index de skin est persisté en NVS, retirer la ligne N ferait
+glisser tout ce qui suit. Une créature est donc marquée `retired` et **garde
+sa place** : son art cesse d'être référencé, l'éditeur de liens l'élimine, et
+un créneau bouchon garde l'alignement des index d'animation.
+
+Mesure utile au passage : **une créature coûte 19 Ko**, pas 200. Son art fait
+3 240 lignes dont **129 distinctes** — le compilateur fusionne les chaînes
+identiques, et le gros du coût n'est pas le texte (5,3 Ko) mais les pointeurs
+(13 Ko).
 
 Endpoints, exposés des deux côtés avec la même sémantique :
 
 ```
 HTTP  /api/anim?name=dance   /api/pet   /api/list   /api/presence?away=1
+      /play  (app telephone)   /  (dashboard, avec un lien vers le studio)
 BLE   {"cmd":"anim","name":"dance"}  {"cmd":"pet"}  {"cmd":"list"}
       {"cmd":"presence","away":true}
 ```

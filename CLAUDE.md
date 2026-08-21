@@ -154,9 +154,13 @@ Mesuré sur la carte, pas déduit :
 
 1. **« Le bus SPI sature. »** Faux. Déjà à 80 MHz avec DMA, il autorise près
    de 90 images par seconde. On en faisait 25.
-2. **« Le sprite en PSRAM coûte trop cher. »** Faux. Mis en RAM interne, la
-   cadence n'a pas bougé d'un dixième, et les 115 Ko pris au tas ont suffi à
-   faire **échouer une mise à jour OTA en plein transfert**. Revenu en PSRAM
+2. **« Il suffit de DÉPLACER le sprite hors de la PSRAM. »** Faux, et la
+   nuance est capitale : la PSRAM *était* bien le plancher (voir plus bas),
+   mais le déplacement seul n'y change rien. Mis en RAM interne, la cadence
+   n'a pas bougé d'un dixième — le `fillScreen` et le push dominaient encore —
+   et les 115 Ko pris au tas ont suffi à faire **échouer une mise à jour OTA
+   en plein transfert**. La sortie n'était pas de déplacer le sprite mais de
+   **cesser de s'en servir** pour l'art éveillé. Revenu en PSRAM
    volontairement.
 3. **« `startWrite()`/`endWrite()` autour de l'image vont aider. »** Faux.
    Aucun gain — le coût des 1200 glyphes n'est pas dans l'ouverture des
@@ -287,6 +291,55 @@ plus léger que `.` et `*` plus dense que `$`.
 
 Le serveur est multi-fils avec un verrou de compilation ; ne pas lancer
 d'envoi en ligne de commande pendant qu'un envoi du studio tourne.
+
+### Retirer une creature
+
+Section CRÉATURES du studio, bouton RETIRER / REMETTRE. **Jamais supprimer
+une entree du registre** : l'index de skin est persiste en NVS, retirer la
+ligne N ferait glisser tout ce qui suit et une carte reglee sur le skin 7 se
+retrouverait en silence sur un autre.
+
+La creature garde donc sa place et seul `retired` change. Son art cesse
+d'etre inclus, l'editeur de liens l'elimine, et un creneau bouchon dans
+`photo_anims.inc` — qui pointe sur l'art du chat, deja reference donc gratuit
+— garde l'alignement des index d'animation.
+
+Le filtrage differe selon le consommateur, et la distinction compte :
+
+- boutons du dashboard : on saute l'entree, `data-i` portant l'index reel ;
+- `/api/list` et la liste BLE : tableau **positionnel**, l'indice EST l'index
+  du skin. On emet un nom **vide**, jamais rien d'omis, sinon tout ce qui suit
+  se decale cote client. `/play` ignore les noms vides.
+
+`face::begin()` retombe sur le premier skin visible si celui enregistre a ete
+retire entre-temps.
+
+`gen_from_image.py --rewire` re-emet le cablage seul, sans regenerer l'art :
+basculer un drapeau ne doit pas couter les minutes d'un rendu complet.
+
+**Mesure, contre-intuitive :** une creature coute **19 Ko** en flash, pas 200.
+Son art fait 3240 lignes dont 129 DISTINCTES — le compilateur fusionne les
+chaines identiques, et le gros du cout n'est pas le texte (5,3 Ko) mais les
+pointeurs (13 Ko). Verifie : 1 666 633 -> 1 647 441 octets au retrait. Le
+`.cpp` reste sur le disque, remettre ne coute qu'un clic.
+
+### Envoyer vers plusieurs cartes
+
+Le studio lit `tools/targets.local.json`, ignore par git parce qu'il porte un
+mot de passe OTA par carte. En son absence, une seule cible est synthetisee
+depuis `platformio_local.ini`.
+
+Envoyer flashe un firmware **ENTIER** — l'art est compile dedans, il n'existe
+pas d'envoi d'animation seule. Viser la carte de quelqu'un d'autre
+remplacerait donc tout son firmware. Ajouter une cible doit rester un geste
+delibere : une ligne ecrite a la main, avec un mot de passe obtenu de sa part.
+
+### Les trois interfaces se renvoient l'une a l'autre
+
+Le studio pointe vers le tableau de bord et `/play` de la carte **selectionnee**.
+Le tableau de bord a une section CRÉATURE vers le studio. `/play` ne l'affiche
+que si une sonde `no-cors` trouve le studio sur la machine qui lit la page —
+un lien fixe y serait mort, `localhost` designant le telephone.
 
 ## Présence
 
