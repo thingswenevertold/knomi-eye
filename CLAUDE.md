@@ -170,17 +170,27 @@ qu'un dashboard était ouvert** — l'animation s'effondrait précisément quand
 la regardait. Ces valeurs sont constantes pour un firmware donné, elles sont
 maintenant en `static const`.
 
-**Plafond actuel : 33 ms de dessin par image**, soit 30 images par seconde,
-dépensées à rendre l'art comme du texte glyphe par glyphe — 30 lignes de 40
-caractères. Le franchir demande de pré-calculer les frames en bitmap et de ne
-plus faire qu'un blit par image. C'est le prochain chantier si on veut
-exploiter les 90 Hz de la dalle.
+**Plafond franchi : l'art tourne à 75 images par seconde** (12 ms par
+image, le plafond physique du SPI). Le chemin, mesuré hypothèse par
+hypothèse — commit b624e2d pour le détail :
 
-**Sauts d'image.** Si la période de l'animation n'est pas un multiple exact de
-la période de rendu, chaque frame dure tantôt une image tantôt deux, et ce
-battement se voit comme des sauts. `FRAME_MS` dans `main.cpp` et le `frameMs`
-du chat dans `asciiart.cpp` valent tous deux **40 ms** et doivent bouger
-ensemble : c'est leur rapport qui compte, pas leur valeur.
+1. Le moteur de texte n'était PAS le goulot ; toutes les voies d'API
+   (drawString, drawBitmap, pushImage) écrivent pixel par pixel.
+2. Le fillScreen réécrivait 115 Ko de PSRAM recouverts juste après.
+3. Le vrai mur : la bande passante de la PSRAM où vit le sprite plein
+   écran, dans les deux sens (~11 ms écrire, ~13 ms relire).
+4. Solution : `drawArtDirect` — frames pré-rendues en bitmap 1 bit en PSRAM
+   (7,2 Ko pièce, au premier affichage), bandes composées en RAM interne,
+   DMA double tampon, couleurs pré-permutées, droit au panneau. Le sprite
+   demeure pour mimiques, sommeil, statuts et autres layouts.
+
+Une sonde `push_us` dans `/api/status` sépare dessin et transfert.
+
+**Sauts d'image.** Si la période de l'animation n'est pas un multiple exact
+de la période de rendu, chaque frame dure tantôt N images tantôt N+1 et ce
+battement se voit. `FRAME_MS` vaut désormais **13 ms** et les périodes d'art
+sont ses multiples exacts : 39 (chat, renards), 117 (cœur), 130 (feu),
+260 (café). Les faire bouger ensemble, toujours.
 
 Un découpage des temps sort dans `/api/status` : `draw_us`, `ble_us`,
 `ota_us`, `admin_us`, et le détail `clean_us` / `json_us` / `send_us`.
@@ -251,6 +261,33 @@ copie qui dérive.
 
 ---
 
+## Studio créature — une photo devient un skin
+
+`py -3.12 tools/studio.py` sert l'éditeur sur `http://localhost:8010` :
+détourage par zones (silhouette, yeux, sourcils, bouche, nez), aperçu
+fidèle 40x30, curseurs de rendu, et trois actions — enregistrer, générer,
+envoyer. TOUT ENCHAÎNER fait la chaîne complète.
+
+`assets/gen_from_image.py` produit les six jeux de frames (idle avec
+clignements, sommeil, clin d'œil, surprise, contentement, colère) **par
+déformation des zones tracées** — aucun dessin par créature. Il tient
+`assets/creatures/registry.json` (**append-only** : l'index de skin est
+persisté en NVS sur la carte, réordonner changerait le skin choisi en
+silence) et émet lui-même le câblage `src/assets/photo_*.inc|h`, inclus par
+`asciiart.cpp` et `skins.cpp`. Une nouvelle image détourée devient donc un
+skin complet sans toucher au firmware.
+
+Recettes de rendu qui ont coûté cher : postérisation par **quantiles**
+(bandes à population égale, sinon la fourrure écrase l'histogramme et tout
+sort monochrome), éclairage aplati par division par un flou large, dessin
+au trait orienté par gradient (+90°), plage calme autour des yeux, paupière
+en arc quand un œil se ferme (l'écraser seul le fait disparaître). La rampe
+de 81 caractères est **mesurée dans glcdfont.h** — sur cette police `:` est
+plus léger que `.` et `*` plus dense que `$`.
+
+Le serveur est multi-fils avec un verrou de compilation ; ne pas lancer
+d'envoi en ligne de commande pendant qu'un envoi du studio tourne.
+
 ## Présence
 
 La créature ne déduit plus l'absence d'un minuteur d'inactivité : elle la
@@ -259,9 +296,15 @@ et réveil la réveillent. Au repos, quelqu'un est là, donc **les yeux restent
 ouverts**.
 
 ```
-.\tools\presence-windows.ps1 -Install     # quatre déclencheurs Windows
+.\tools\presence-windows.ps1 -Install     # cinq déclencheurs Windows
 .\tools\presence-windows.ps1 -Uninstall
 ```
+
+Le cinquième est un **battement** : toutes les 5 minutes, l'état réel
+(LogonUI vivant = session verrouillée). Les quatre autres ne tirent que
+sur transition, or la carte oublie tout à chaque redémarrage — donc à
+chaque OTA — puis s'endormait au minuteur devant son propriétaire. À
+réinstaller sur chaque poste compagnon.
 
 Un repli au minuteur subsiste tant qu'aucun poste ne s'est jamais annoncé,
 pour qu'une carte sans PC compagnon finisse quand même par dormir.
@@ -311,23 +354,22 @@ intouchable : il est là pour être remplacé par mieux.
 
 Ce que Samuel veut construire, dans cet ordre :
 
-1. **Un système d'art ASCII animé générique.** N'importe quelle image devient
-   une créature expressive. Le point dur est connu : les mimiques du chat
-   marchent parce que le générateur le *dessine*, ses yeux sont des ellipses
-   avec un paramètre `eye_open`. Une image quelconque n'est que des pixels —
-   il n'y a pas d'œil à fermer. La piste retenue est un manifeste par
-   personnage déclarant où sont les yeux et la bouche, et une déformation de
-   ces régions. À 40x30 avec une rampe de 18 niveaux, le détail est déjà
-   largement détruit par la conversion, donc l'approximation tient mieux
-   qu'on ne le croirait. La conversion tourne sur PC, pas sur l'ESP32.
+1. **Un système d'art ASCII animé générique — FAIT.** Le studio (voir la
+   section dédiée) détoure n'importe quelle image en zones, le générateur
+   déforme ces zones pour produire les six jeux de frames, et le registre
+   câble tout dans le firmware sans intervention. Reste à l'exercer : le
+   renard photo est la seule créature passée par la chaîne, et son dernier
+   tracé a été perdu (onglet fermé) — à refaire dans le studio.
 
 2. **De petits éléments d'interaction.** Ce qui se passe quand on touche la
    créature, comment elle réagit, ce qu'elle fait d'elle-même quand on la
    laisse tranquille. `mood` et les animations nommées sont les premières
    briques ; il y a de la place au-dessus.
 
-3. Rendre les frames en bitmap plutôt qu'en texte, pour dépasser les 30 fps.
-   Utile en soi, et ça simplifie le point 1 au lieu de le compliquer.
+3. Rendre les frames en bitmap plutôt qu'en texte — **FAIT**, et au-delà :
+   75 images par seconde par la voie directe au panneau (section
+   Performance). Le point 2 est donc le front actuel, avec la boucle de
+   jeu tamagotchi (téléphone en manette via /play et BLE).
 
 ### Reprendre l'auto-mise-a-jour de l'amont — decision en attente
 
