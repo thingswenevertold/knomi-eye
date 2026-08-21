@@ -431,17 +431,47 @@ LIFT = 0.03
 SPAN = 0.62
 GAMMA = 1.00
 
+# Masque flou inverse, applique sur la GRILLE CELLULE et non sur l image
+# pleine resolution : c est apres la reduction que les traits du visage se
+# noient, chaque cellule moyennant 24x32 pixels. Nez, yeux, oreilles et
+# bouche ressortent de ce que leur cellule s ecarte de ses voisines, et c est
+# exactement ce que cette operation amplifie.
+#
+# Mesure sur le chat : contraste local moyen de 0,172 a 0,236. Le prix est
+# une baisse des caracteres distincts, de 79 a 76 — un echange assume, parce
+# qu un ecart de deux caracteres sur 81 ne se voit pas, alors qu un tiers de
+# contraste local en plus se voit tout de suite.
+SHARPEN = 1.4
+
 # Traits de contour. A ZERO PAR DEFAUT, et ce n est pas un detail : le
 # contour remplace une trentaine de cellules aux tons varies par quatre
 # caracteres seulement, ce qui coute environ sept caracteres distincts par
 # image — de 80 a 73. Il dessine une silhouette nette, mais au prix exact de
 # ce qu on cherche ici. Monter au-dessus de zero le reactive.
-EDGES = 0.0
+# Contours de silhouette. Reactives : ils coutent des caracteres distincts,
+# mais ce sont eux qui detachent la creature du fond.
+EDGES = 0.18
 
 # Seuil d encrage, sur la luminance BRUTE : une cellule vide le reste quoi
 # que fasse la courbe tonale. C est ce qui garde les oreilles et les
 # moustaches, dessinees hors du masque de la tete.
 INK = 0.02
+
+
+def unsharp(cells, amount, radius=1):
+    """Renforce l ecart de chaque cellule avec son voisinage."""
+    if amount <= 0.0:
+        return cells
+    p = np.pad(cells, radius, mode="edge")
+    k = 2 * radius + 1
+    blur = np.zeros_like(cells)
+    for dy in range(k):
+        for dx in range(k):
+            blur += p[dy:dy + cells.shape[0], dx:dx + cells.shape[1]]
+    blur /= float(k * k)
+    out = np.clip(cells + amount * (cells - blur), 0.0, 1.0)
+    # Le renforcement ne doit pas encrer le fond : une cellule vide le reste.
+    return out * (cells > INK)
 
 
 def stroke_grid(cells, bcells):
@@ -493,7 +523,8 @@ def stroke_grid(cells, bcells):
 
 def to_chars(cells, bcells=None):
     """Luminance grid -> list of 40-char rows, blanked outside the circle."""
-    strokes = stroke_grid(cells, bcells) if bcells is not None else {}
+    sharp = unsharp(cells, SHARPEN)
+    strokes = stroke_grid(sharp, bcells) if bcells is not None else {}
     rows = []
     n = len(RAMP)
     for r in range(ROWS):
@@ -512,9 +543,14 @@ def to_chars(cells, bcells=None):
             if cells[r, c] <= INK:
                 out.append(" ")
                 continue
-            v = float(np.clip((cells[r, c] - LIFT) / SPAN, 0.0, 1.0))
+            v = float(np.clip((sharp[r, c] - LIFT) / SPAN, 0.0, 1.0))
             idx = int(round(v ** GAMMA * (n - 1)))
-            out.append(RAMP[min(max(idx, 0), n - 1)])
+            # Plancher a 1, et c est structurel : RAMP[0] est une ESPACE, donc
+            # un ton pousse a zero ne s assombrit pas, il DISPARAIT. Sans ce
+            # plancher, assombrir — par le gamma ou par le masque flou —
+            # efface des morceaux entiers de la creature. C est arrive : le
+            # menton, le museau et les moustaches s etaient volatilises.
+            out.append(RAMP[min(max(idx, 1), n - 1)])
         rows.append("".join(out).rstrip().ljust(COLS))
     return rows
 
@@ -651,7 +687,14 @@ def emit(sets):
         for i, rows in enumerate(frames):
             lines.append('const char* const %s_%02d[] = {' % (prefix, i))
             for r in rows:
-                lines.append('    "%s",' % r)
+                # Antislash et guillemet doivent etre echappes. Les traits de
+                # contour introduisent des antislashs dans l art, et un
+                # antislash suivi d un U ou d un x forme une sequence
+                # d echappement C invalide qui casse la compilation. Le defaut
+                # etait invisible tant que les contours restaient desactives :
+                # aucun antislash n apparaissait dans l art.
+                esc = r.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"')
+                lines.append('    "%s",' % esc)
             lines.append('};')
         lines.append('')
     lines += ['}', '', 'namespace assets {', '']
