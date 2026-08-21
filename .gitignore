@@ -15,3 +15,7 @@ tools/presence.local.json
 
 # Un mot de passe OTA par carte cible, pour le studio.
 tools/targets.local.json
+
+# Bytecode Python : regenere a chaque import, aucune raison d'etre versionne.
+__pycache__/
+*.pyc

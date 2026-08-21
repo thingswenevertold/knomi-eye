@@ -321,6 +321,17 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
         # L'oeil s'elargit aussi un peu quand il s'ouvre au-dela du repos,
         # sinon un oeil surpris n'est qu'une fente plus haute.
         erx = 0.112 * P["eye_scale"] * (1.0 + 0.22 * max(0.0, eo - 1.0))
+        # Liseré ROGNANT : l anneau occupe l emprise d origine de l oeil et
+        # c est le BLANC qui retrecit. L oeil ne grandit donc pas d un pixel.
+        #
+        # La version precedente ajoutait l anneau AUTOUR, ce qui agrandissait
+        # l oeil — et se voyait comme tel sur la dalle. Ici l emprise est
+        # inchangee, seul le bord du blanc cede la place.
+        if EYE_RING > 0.0:
+            img = over(img, mask_ellipse(ecx, eye_y, erx, ery), EYE_RING_VAL)
+            erx = max(erx - EYE_RING, 0.012)
+            ery = max(ery - EYE_RING, 0.010)
+
         sclera = mask_ellipse(ecx, eye_y, erx, ery)
         img = over(img, sclera, 1.0)
 
@@ -442,6 +453,16 @@ GAMMA = 1.00
 # qu un ecart de deux caracteres sur 81 ne se voit pas, alors qu un tiers de
 # contraste local en plus se voit tout de suite.
 SHARPEN = 1.4
+
+# Liseré sombre du blanc de l oeil, ROGNE vers l interieur : l emprise de
+# l oeil ne change pas, c est le blanc qui recule d autant.
+#
+# Volontairement tres fin. Une cellule fait 1/40 de large, soit 0,025 en
+# unites normalisees ; a 0,006 l anneau n assombrit que partiellement les
+# cellules de bord, ce qui est exactement le but — marquer sans dessiner un
+# trait. Mettre 0 le desactive entierement.
+EYE_RING = 0.006
+EYE_RING_VAL = 0.05
 
 # Traits de contour. A ZERO PAR DEFAUT, et ce n est pas un detail : le
 # contour remplace une trentaine de cellules aux tons varies par quatre
