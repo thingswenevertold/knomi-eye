@@ -321,6 +321,19 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
         # L'oeil s'elargit aussi un peu quand il s'ouvre au-dela du repos,
         # sinon un oeil surpris n'est qu'une fente plus haute.
         erx = 0.112 * P["eye_scale"] * (1.0 + 0.22 * max(0.0, eo - 1.0))
+
+        # Liseré sombre autour du blanc, dessine AVANT lui pour qu il n en
+        # reste qu un anneau.
+        #
+        # Un blanc a 1.0 sur une fourrure a 0,5 devrait suffire, et pourtant
+        # l oeil se fondait : a 40x30 une cellule moyenne 24x32 pixels, donc
+        # le bord du blanc et la fourrure atterrissent dans la MEME cellule et
+        # s annulent. Un anneau sombre place entre les deux garantit un ecart
+        # franc quel que soit le decoupage — c est du contraste local, la
+        # seule chose qui survive a la reduction.
+        ring = mask_ellipse(ecx, eye_y, erx + EYE_RING, ery + EYE_RING)
+        img = over(img, ring, EYE_RING_VAL)
+
         sclera = mask_ellipse(ecx, eye_y, erx, ery)
         img = over(img, sclera, 1.0)
 
@@ -442,6 +455,15 @@ GAMMA = 1.00
 # qu un ecart de deux caracteres sur 81 ne se voit pas, alors qu un tiers de
 # contraste local en plus se voit tout de suite.
 SHARPEN = 1.4
+
+# Liseré sombre autour du blanc de l oeil. Epaisseur en unites normalisees du
+# panneau, et valeur de gris — 0 est le plus sombre.
+#
+# Une cellule fait 1/40 de large, soit 0,025 : un anneau plus fin que ca ne
+# remplit jamais une cellule entiere et se dilue dans la moyenne. Plus epais,
+# il mange le blanc. Regle juste en dessous, pour marquer sans devorer.
+EYE_RING = 0.018
+EYE_RING_VAL = 0.05
 
 # Traits de contour. A ZERO PAR DEFAUT, et ce n est pas un detail : le
 # contour remplace une trentaine de cellules aux tons varies par quatre
