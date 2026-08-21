@@ -397,11 +397,103 @@ def render_frame(t, eye_open, twitch, gaze_x, gaze_y, sleepy=False,
 
     # --- downsample to the character grid ---------------------------------
     cells = img.reshape(ROWS, CELL_H, COLS, CELL_W).mean(axis=(1, 3))
-    return cells
+    # Le masque du corps suit la meme reduction : la posterisation ne doit
+    # regarder que la creature, jamais le fond, sinon le noir autour ecrase
+    # la distribution et toutes les nuances se tassent dans une seule bande.
+    bcells = body.reshape(ROWS, CELL_H, COLS, CELL_W).mean(axis=(1, 3))
+    return cells, bcells
 
 
-def to_chars(cells):
+# --- rendu tonal et traits -------------------------------------------------
+# Reglages trouves par balayage, en maximisant le nombre de caracteres
+# DISTINCTS par image — c est ce qui fait la richesse a 40x30 — SOUS
+# CONTRAINTE de ne pas perdre d encre.
+#
+#   ancien (0.06 / 0.86 / 0.80) : 77,0 distincts, 496 cellules visibles
+#   retenu (0.03 / 0.62 / 1.00) : 78,9 distincts, 510 cellules visibles
+#
+# La contrainte n est pas decorative. RAMP[0] est une ESPACE : un ton pousse
+# a l index zero ne s assombrit pas, il DISPARAIT. Un balayage qui maximise
+# les caracteres distincts sans regarder l encre choisit donc joyeusement un
+# gamma qui efface la moitie basse de la creature — menton, museau et
+# moustaches — sans que le critere s en apercoive, puisque les espaces ne
+# comptent pas comme un caractere. Essaye et verifie.
+#
+# Une piste a ete essayee et abandonnee : etirement par percentiles puis
+# posterisation par quantiles, comme pour les creatures photo. Deux raisons
+# de ne pas la reprendre. D abord elle ECRETE aux deux bouts, et les cellules
+# saturees se collapsent sur un meme caractere — 70 a 72 distincts seulement,
+# et des marques fines perdues autour des yeux. Ensuite elle repond a un
+# probleme qui n existe pas ici : elle sert a dompter l histogramme d une
+# photo, ecrase par la fourrure. Ce chat est dessine avec un modele
+# d eclairage controle, sa distribution est deja etalee.
+LIFT = 0.03
+SPAN = 0.62
+GAMMA = 1.00
+
+# Traits de contour. A ZERO PAR DEFAUT, et ce n est pas un detail : le
+# contour remplace une trentaine de cellules aux tons varies par quatre
+# caracteres seulement, ce qui coute environ sept caracteres distincts par
+# image — de 80 a 73. Il dessine une silhouette nette, mais au prix exact de
+# ce qu on cherche ici. Monter au-dessus de zero le reactive.
+EDGES = 0.0
+
+# Seuil d encrage, sur la luminance BRUTE : une cellule vide le reste quoi
+# que fasse la courbe tonale. C est ce qui garde les oreilles et les
+# moustaches, dessinees hors du masque de la tete.
+INK = 0.02
+
+
+def stroke_grid(cells, bcells):
+    """Traits orientes par le gradient, au niveau cellule.
+
+    C est le vocabulaire du dessin au trait : une cellule traversee par une
+    arete recoit le caractere penche comme elle. A cette resolution, une
+    arete tracee se lit ou un degrade se perd.
+    """
+    # A zero, aucun trait — pas meme le contour. La version precedente
+    # laissait le liseré de silhouette passer quoi qu il arrive, parce que sa
+    # condition ne regardait pas EDGES : la desactivation n en etait pas une.
+    if EDGES <= 0.0:
+        return {}
+
+    gy, gx = np.gradient(cells)
+    mag = np.hypot(gx, gy)
+    if mag.max() > 0:
+        mag = mag / mag.max()
+    bgy, bgx = np.gradient(bcells)
+    bmag = np.hypot(bgx, bgy)
+
+    thr = 0.86 - 0.40 * EDGES
+    out = {}
+    for r in range(ROWS):
+        for c in range(COLS):
+            x = (c + 0.5) / COLS - 0.5
+            y = (r + 0.5) / ROWS - 0.5
+            if x * x + y * y > 0.25:
+                continue
+            is_rim = bmag[r, c] > 0.42 and bcells[r, c] > 0.25
+            is_edge = bcells[r, c] > 0.5 and mag[r, c] > thr
+            if not (is_rim or is_edge):
+                continue
+            ax = bgx[r, c] if is_rim else gx[r, c]
+            ay = bgy[r, c] if is_rim else gy[r, c]
+            # +90 degres : le trait suit l arete, pas la pente.
+            ang = (math.degrees(math.atan2(ay, ax)) + 90.0) % 180.0
+            if ang < 22.5 or ang >= 157.5:
+                out[(r, c)] = "-"
+            elif ang < 67.5:
+                out[(r, c)] = "/"
+            elif ang < 112.5:
+                out[(r, c)] = "|"
+            else:
+                out[(r, c)] = chr(92)
+    return out
+
+
+def to_chars(cells, bcells=None):
     """Luminance grid -> list of 40-char rows, blanked outside the circle."""
+    strokes = stroke_grid(cells, bcells) if bcells is not None else {}
     rows = []
     n = len(RAMP)
     for r in range(ROWS):
@@ -413,8 +505,15 @@ def to_chars(cells):
             if x * x + y * y > 0.25:      # outside the round panel
                 out.append(" ")
                 continue
-            v = float(np.clip((cells[r, c] - 0.06) / 0.86, 0.0, 1.0))
-            idx = int(round(v ** 0.80 * (n - 1)))
+            # Un trait prime sur le ton : c est lui qui porte la forme.
+            if (r, c) in strokes:
+                out.append(strokes[(r, c)])
+                continue
+            if cells[r, c] <= INK:
+                out.append(" ")
+                continue
+            v = float(np.clip((cells[r, c] - LIFT) / SPAN, 0.0, 1.0))
+            idx = int(round(v ** GAMMA * (n - 1)))
             out.append(RAMP[min(max(idx, 0), n - 1)])
         rows.append("".join(out).rstrip().ljust(COLS))
     return rows
@@ -449,7 +548,7 @@ def build_awake():
             gx, gy = 0.008, 0.010
         else:
             gx, gy = -0.010, 0.0
-        frames.append(to_chars(render_frame(t, eye, tw, gx, gy)))
+        frames.append(render_frame(t, eye, tw, gx, gy))
     return frames
 
 
@@ -457,7 +556,7 @@ def build_sleep():
     frames = []
     for f in range(N_SLEEP):
         t = f / float(N_SLEEP)
-        frames.append(to_chars(render_frame(t, 0.0, 0.0, 0.0, 0.0, sleepy=True)))
+        frames.append(render_frame(t, 0.0, 0.0, 0.0, 0.0, sleepy=True))
     return frames
 
 
@@ -479,7 +578,7 @@ def build_wink():
         u = f / float(N_EXPR - 1)
         # Seul l'oeil droit se ferme : c'est tout l'interet du parametre par
         # oeil, un clin d'oeil symetrique n'est qu'un clignement.
-        frames.append(to_chars(render_frame(
+        frames.append((render_frame(
             u * 0.5, (1.0, 1.0 - ease(u)), 0.0, 0.014, 0.004)))
     return frames
 
@@ -489,7 +588,7 @@ def build_surprised():
     for f in range(N_EXPR):
         u = f / float(N_EXPR - 1)
         e = ease(u)
-        frames.append(to_chars(render_frame(
+        frames.append((render_frame(
             u * 0.5, 1.0 + 0.55 * e, 0.045 * e, 0.0, -0.012, mouth_open=e)))
     return frames
 
@@ -499,7 +598,7 @@ def build_happy():
     for f in range(N_EXPR):
         u = f / float(N_EXPR - 1)
         # Yeux plisses de contentement, oreilles qui remuent.
-        frames.append(to_chars(render_frame(
+        frames.append((render_frame(
             u, 1.0 - 0.62 * ease(u),
             math.sin(u * math.pi * 2.0) * 0.050,
             math.sin(u * math.pi * 2.0) * 0.020, 0.008)))
@@ -520,7 +619,7 @@ def build_angry():
             b = 1.0
         # Vibration courte : la tete tremble au lieu de rester figee.
         shake = math.sin(u * math.pi * 9.0) * 0.011 * b
-        frames.append(to_chars(render_frame(
+        frames.append((render_frame(
             u, 1.0 - 0.38 * b, shake * 0.6, shake, 0.008, brow=b)))
     return frames
 
@@ -577,7 +676,10 @@ if __name__ == "__main__":
     for name in wanted:
         set_profile(name)
         pfx = P["export"]
-        sets = [
+        # Les constructeurs rendent des grilles de luminance et le masque
+        # associe ; la conversion en caracteres vient apres, les traits ayant
+        # besoin des deux.
+        raw = [
             (P["prefix"], pfx + "_ASCII", build_awake()),
             ("NAP", pfx + "_ASCII_SLEEP", build_sleep()),
             ("WNK", pfx + "_WINK", build_wink()),
@@ -585,6 +687,8 @@ if __name__ == "__main__":
             ("HAP", pfx + "_HAPPY", build_happy()),
             ("ANG", pfx + "_ANGRY", build_angry()),
         ]
+        sets = [(pre, ename, [to_chars(cells, bcells) for cells, bcells in frames])
+                for pre, ename, frames in raw]
         emit(sets)
 
         print("=== profil %s ===" % name)
