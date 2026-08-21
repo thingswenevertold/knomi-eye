@@ -559,9 +559,10 @@ void update(uint32_t now) {
             // Delaissee assez longtemps pour s'en agacer.
             startSpecial(Special::Angry, now, specialDuration(Special::Angry), 1);
         } else if (before == mood::State::Asleep) {
-            // Reveil en sursaut : la surprise rejoue plusieurs fois pour
-            // tenir quelques secondes sans etre ralentie au point de figer.
-            startSpecial(Special::Surprised, now, 3200, 3);
+            // Reveil en sursaut : la surprise boucle cinq secondes. Elle
+            // rejoue plusieurs fois plutot que d'etre etiree, sinon elle
+            // ralentirait au point de paraitre figee.
+            startSpecial(Special::Surprised, now, 5000, 5);
         }
     }
 
@@ -575,7 +576,14 @@ void update(uint32_t now) {
             blinking = false;
             scheduleNextBlink(now);
         }
-        if (now >= nextSpecialMs) {
+        // Rien de spontane pendant le sommeil : une creature endormie qui
+        // danse toute seule n'a aucun sens, et c'est pourtant ce qui se
+        // passait — ce declencheur n'avait pas de garde. Le minuteur continue
+        // d'avancer pour qu'au reveil la premiere animation ne parte pas
+        // immediatement.
+        if (mood::get() == mood::State::Asleep) {
+            scheduleNextSpecial(now);
+        } else if (now >= nextSpecialMs) {
             special = pickSpecial();
             uint32_t duration = (special == Special::Dance || special == Special::Wobble) ? 1600 : 900;
             specialUntilMs = now + duration;
