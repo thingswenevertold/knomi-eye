@@ -16,8 +16,10 @@ serveur, alors qu'un fichier ouvert en file:// serait refuse.
 Le serveur n'ecoute que sur la boucle locale. Il execute des commandes de
 build sur demande, ce qui n'a rien a faire sur une interface reseau.
 """
+import io
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -29,6 +31,49 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(ROOT, "tools")
 CREATURES = os.path.join(ROOT, "assets", "creatures")
 PORT = 8010
+TARGETS_PATH = os.path.join(TOOLS, "targets.local.json")
+
+
+def load_targets():
+    """Les cartes vers lesquelles on accepte d'envoyer.
+
+    Fichier local, ignore par git, parce qu'il contient un mot de passe OTA
+    par carte :
+
+        {"targets": [
+          {"id": "zaza", "label": "Zaza", "host": "zaza.local", "auth": "..."}
+        ]}
+
+    En son absence on synthetise une seule cible depuis platformio_local.ini,
+    pour que le studio marche sans rien configurer. C'est volontairement la
+    seule cible par defaut : envoyer signifie flasher un firmware ENTIER, donc
+    ajouter la carte de quelqu'un d'autre doit etre un geste delibere, avec son
+    mot de passe OTA obtenu de sa part — pas une entree de plus dans une liste.
+    """
+    if os.path.isfile(TARGETS_PATH):
+        try:
+            data = json.load(io.open(TARGETS_PATH, encoding="utf-8"))
+            out = [t for t in data.get("targets", [])
+                   if t.get("id") and t.get("host") and t.get("auth")]
+            if out:
+                return out
+        except Exception:
+            pass
+
+    ini = os.path.join(ROOT, "platformio_local.ini")
+    host, auth = None, None
+    if os.path.isfile(ini):
+        txt = io.open(ini, encoding="utf-8").read()
+        m = re.search(r"^\s*upload_port\s*=\s*(\S+)", txt, re.M)
+        if m:
+            host = m.group(1)
+        m = re.search(r"--auth=(\S+)", txt)
+        if m:
+            auth = m.group(1)
+    if not host or not auth:
+        return []
+    label = host.split(".")[0] or host
+    return [{"id": label, "label": label.capitalize(), "host": host, "auth": auth}]
 
 PY = sys.executable
 
@@ -38,11 +83,11 @@ PY = sys.executable
 BUILD_LOCK = threading.Lock()
 
 
-def run(cmd, cwd=ROOT, timeout=900):
+def run(cmd, cwd=ROOT, timeout=900, env=None):
     """Lance une commande et rend (code, sortie fusionnee)."""
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                           timeout=timeout, errors="replace")
+                           timeout=timeout, errors="replace", env=env)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
         return 1, "Delai depasse apres %d s." % timeout
@@ -79,6 +124,11 @@ class Handler(BaseHTTPRequestHandler):
             self._file(os.path.join(TOOLS, "zone-editor.html"), "text/html; charset=utf-8")
         elif u.path == "/ble":
             self._file(os.path.join(TOOLS, "ble-remote.html"), "text/html; charset=utf-8")
+        elif u.path == "/targets":
+            # Jamais le mot de passe : la page n'en a pas besoin, elle renvoie
+            # seulement l'id choisi.
+            self._send(200, {"targets": [{"id": t["id"], "label": t.get("label", t["id"]),
+                                          "host": t["host"]} for t in load_targets()]})
         elif u.path == "/creatures":
             os.makedirs(CREATURES, exist_ok=True)
             names = sorted(f for f in os.listdir(CREATURES) if f.endswith(".zones.json"))
@@ -112,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/generate":
             self._generate(payload)
         elif u.path == "/deploy":
-            self._deploy()
+            self._deploy(payload)
         else:
             self._send(404, {"error": "route inconnue"})
 
@@ -155,14 +205,37 @@ class Handler(BaseHTTPRequestHandler):
             BUILD_LOCK.release()
         self._send(200, {"ok": code == 0, "log": out[-6000:]})
 
-    def _deploy(self):
+    def _deploy(self, payload=None):
+        targets = load_targets()
+        if not targets:
+            self._send(200, {"ok": False,
+                             "log": "Aucune cible : ni tools/targets.local.json, "
+                                    "ni upload_port/--auth dans platformio_local.ini."})
+            return
+
+        wanted = (payload or {}).get("target")
+        target = next((t for t in targets if t["id"] == wanted), None) if wanted else targets[0]
+        if target is None:
+            self._send(200, {"ok": False,
+                             "log": "Cible inconnue : %s" % wanted})
+            return
+
         if not BUILD_LOCK.acquire(blocking=False):
             self._send(200, {"ok": False,
                              "log": "Une generation ou un envoi tourne deja — attends la fin."})
             return
         try:
+            # La cible est passee explicitement plutot que laissee au fichier
+            # de config : quand plusieurs cartes existent, l'envoi doit dire
+            # ou il va, pas dependre de ce qu'un fichier contenait au moment
+            # du clic. Le mot de passe passe par l'environnement, donc il
+            # n'apparait pas dans une ligne de commande visible aux autres
+            # processus de la machine.
+            env = dict(os.environ)
+            env["PLATFORMIO_UPLOAD_FLAGS"] = "--auth=" + target["auth"]
             code, out = run([PY, "-m", "platformio", "run",
-                             "-e", "esp32dev-ota", "-t", "upload"])
+                             "-e", "esp32dev-ota", "-t", "upload",
+                             "--upload-port", target["host"]], env=env)
         finally:
             BUILD_LOCK.release()
         # La sortie de PlatformIO est enorme ; on ne garde que ce qui informe.
@@ -170,7 +243,11 @@ class Handler(BaseHTTPRequestHandler):
                 if any(k in l for k in ("Result:", "Success", "SUCCESS", "FAILED",
                                         "error:", "Error", "Uploading", "Authenticating",
                                         "RAM:", "Flash:"))]
-        self._send(200, {"ok": code == 0, "log": "\n".join(keep[-40:]) or out[-3000:]})
+        # La cible en tete du journal : apres coup, savoir QUELLE carte a recu
+        # l'envoi vaut mieux que de le deduire.
+        head = "Cible : %s (%s)" % (target.get("label", target["id"]), target["host"])
+        self._send(200, {"ok": code == 0, "target": target["id"],
+                         "log": head + "\n" + ("\n".join(keep[-40:]) or out[-3000:])})
 
 
 if __name__ == "__main__":

@@ -139,6 +139,18 @@ String htmlPage() {
     html += "<h1>LIVE</h1>";
     html += "<div class='mirror'><span id='m-eyes'>o o</span><span id='m-mouth'>-</span></div>";
 
+    // Raccourci vers le studio de creatures. Le lien vise localhost a dessein :
+    // le studio compile et flashe, il n'ecoute donc que sur la boucle locale.
+    // Consequence assumee — depuis un telephone ce lien ne mene nulle part,
+    // puisque localhost y designe le telephone. Le texte le dit plutot que de
+    // laisser tomber sur un lien mort sans explication.
+    html += "<h1>CRÉATURE</h1>";
+    html += "<a class='skin-btn' href='http://localhost:8010' target='_blank' "
+            "rel='noopener'>DÉTOURER UNE CRÉATURE</a>";
+    html += "<p style='font-size:12px;color:#c8763a;max-width:480px;margin:10px 0 24px'>"
+            "Ouvre le studio sur la machine depuis laquelle tu lis cette page, "
+            "et seulement si <code>py -3.12 tools/studio.py</code> y tourne.</p>";
+
     html += "<h1>SKIN</h1><div class='skins' id='skins'>";
     for (int i = 0; i < face::getSkinCount(); i++) {
         html += "<button class='skin-btn' data-i='" + String(i) + "' onclick='setSkin(" + String(i) +

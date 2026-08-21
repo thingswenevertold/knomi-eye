@@ -12,3 +12,6 @@ platformio_local.ini
 
 # Contient le mot de passe du dashboard, pour les taches de presence.
 tools/presence.local.json
+
+# Un mot de passe OTA par carte cible, pour le studio.
+tools/targets.local.json
