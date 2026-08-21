@@ -139,10 +139,13 @@ void runCommand(const String& body) {
             // The catalogue a remote needs to label its buttons. Sent only on
             // request: the periodic state push has to stay inside one BLE
             // notification, and these names would not fit there.
+            // Positionnel comme cote HTTP : nom vide pour une creature
+            // retiree, jamais d'entree omise.
             String j = "{\"skinNames\":[";
             for (int i = 0; i < face::getSkinCount(); i++) {
                 if (i) j += ",";
-                j += "\"" + minijson::escape(face::getSkinName(i)) + "\"";
+                j += "\"" + (face::isSkinHidden(i) ? String("")
+                                                    : minijson::escape(face::getSkinName(i))) + "\"";
             }
             j += "],\"animNames\":[";
             for (int i = 0; i < face::getAnimCount(); i++) {

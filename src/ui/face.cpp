@@ -464,6 +464,11 @@ const char* getSkinName(int index) {
     return SKINS[index].name;
 }
 
+bool isSkinHidden(int index) {
+    if (index < 0 || index >= SKIN_COUNT) return true;
+    return SKINS[index].hidden;
+}
+
 void begin() {
     // Without this, rand() starts from the same seed on every boot and the
     // creature replays an identical script of blinks, specials and glitch
@@ -478,6 +483,15 @@ void begin() {
 
     prefs.begin("knomi", false);
     int saved = prefs.getInt("skin", 0);
+    // Le skin enregistre peut avoir ete retire entre-temps. Son creneau existe
+    // encore — c'est tout l'interet — mais l'afficher montrerait une creature
+    // que l'utilisateur croit supprimee. On retombe sur le premier visible.
+    if (saved < 0 || saved >= SKIN_COUNT || SKINS[saved].hidden) {
+        saved = 0;
+        for (int i = 0; i < SKIN_COUNT; i++) {
+            if (!SKINS[i].hidden) { saved = i; break; }
+        }
+    }
     setSkin(saved);
 
     scheduleNextBlink(0);

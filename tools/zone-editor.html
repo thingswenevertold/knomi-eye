@@ -106,6 +106,14 @@
     <div id="sliders"></div>
     <button class="wide" id="reset-r">VALEURS PAR DÉFAUT</button>
 
+    <h2>CRÉATURES</h2>
+    <ul id="reg"><li style="color:#8a5a30">aucune</li></ul>
+    <p class="hint">
+      Retirer garde la place de la créature — son index est enregistré sur la
+      carte, le décaler changerait le skin choisi en silence. L'art cesse
+      d'être compilé, la flash est rendue, et remettre ne coûte qu'un clic.
+    </p>
+
     <h2>ACTIONS</h2>
     <div id="offline" class="warn" hidden>
       Page ouverte en fichier local : seul le téléchargement du manifeste
@@ -633,6 +641,36 @@ async function doGen() {
   return !!r.ok;
 }
 
+// La liste des creatures, avec leur etat retire ou non.
+async function loadRegistry() {
+  let d;
+  try { d = await (await fetch('/registry')).json(); }
+  catch (e) { return; }
+  const ul = $('reg');
+  ul.innerHTML = '';
+  const cs = d.creatures || [];
+  if (!cs.length) {
+    ul.innerHTML = '<li style="color:#8a5a30">aucune</li>';
+    return;
+  }
+  cs.forEach(c => {
+    const li = document.createElement('li');
+    const nom = document.createElement('span');
+    nom.textContent = c.label;
+    if (c.retired) { nom.style.color = '#8a5a30'; nom.textContent += '  (retirée)'; }
+    const b = document.createElement('button');
+    b.textContent = c.retired ? 'REMETTRE' : 'RETIRER';
+    b.onclick = action(async () => {
+      const r = await api('/retire', { id: c.id, retired: !c.retired });
+      log(r.log || '');
+      await loadRegistry();
+      return !!r.ok;
+    });
+    li.appendChild(nom); li.appendChild(b);
+    ul.appendChild(li);
+  });
+}
+
 // Les cibles viennent du serveur, jamais leur mot de passe : la page ne
 // renvoie qu'un identifiant, et c'est le studio qui sait quoi en faire.
 let TARGETS = [];
@@ -724,7 +762,7 @@ if (STUDIO) {
 }
 
 buildKinds(); buildSliders(); refresh();
-if (STUDIO) { loadTargets(); }
+if (STUDIO) { loadTargets(); loadRegistry(); }
 </script>
 </body>
 </html>

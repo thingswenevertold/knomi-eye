@@ -24,6 +24,19 @@ struct SkinDef {
     // Index into asciiart::ANIMS. Only meaningful for LAYOUT_ASCIIART;
     // ignored (and conventionally 0) for every other layout.
     uint8_t anim;
+    // Créature retirée : le créneau est conservé, mais elle disparaît des
+    // interfaces.
+    //
+    // On ne peut pas simplement supprimer une entrée : l'index de skin est
+    // persisté en NVS, donc retirer la ligne N ferait glisser d'un cran tout
+    // ce qui suit, et une carte réglée sur le skin 7 se retrouverait en
+    // silence sur un autre. Le créneau reste donc occupé et seul l'affichage
+    // change. L'art, lui, cesse d'être référencé et l'éditeur de liens
+    // l'élimine — la place en flash est bien rendue.
+    //
+    // Dernier champ : les entrées écrites avant lui restent valides en
+    // initialisation agrégée, où un membre omis vaut false.
+    bool hidden;
 };
 
 extern const SkinDef SKINS[];

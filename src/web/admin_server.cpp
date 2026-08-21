@@ -153,6 +153,9 @@ String htmlPage() {
 
     html += "<h1>SKIN</h1><div class='skins' id='skins'>";
     for (int i = 0; i < face::getSkinCount(); i++) {
+        // Ici on peut sauter : data-i porte l'index reel, donc omettre une
+        // entree ne decale rien.
+        if (face::isSkinHidden(i)) continue;
         html += "<button class='skin-btn' data-i='" + String(i) + "' onclick='setSkin(" + String(i) +
                 ")'>" + String(face::getSkinName(i)) + "</button>";
     }
@@ -365,10 +368,15 @@ void begin() {
     // this instead of shipping a copy that drifts.
     server.on("/api/list", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (!requireAuth(request)) return;
+        // Tableau positionnel : l'indice EST l'index du skin. On ne saute
+        // donc pas les creatures retirees, on emet un nom vide — sinon tout
+        // ce qui suit se decalerait cote client. Un nom vide veut dire
+        // "creneau occupe, rien a montrer".
         String j = "{\"skinNames\":[";
         for (int i = 0; i < face::getSkinCount(); i++) {
             if (i) j += ",";
-            j += "\"" + jsonEscape(face::getSkinName(i)) + "\"";
+            j += "\"" + (face::isSkinHidden(i) ? String("")
+                                               : jsonEscape(face::getSkinName(i))) + "\"";
         }
         j += "],\"animNames\":[";
         for (int i = 0; i < face::getAnimCount(); i++) {

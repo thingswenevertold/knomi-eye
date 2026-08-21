@@ -32,6 +32,16 @@ TOOLS = os.path.join(ROOT, "tools")
 CREATURES = os.path.join(ROOT, "assets", "creatures")
 PORT = 8010
 TARGETS_PATH = os.path.join(TOOLS, "targets.local.json")
+REGISTRY = os.path.join(CREATURES, "registry.json")
+
+
+def load_registry():
+    if not os.path.isfile(REGISTRY):
+        return {"creatures": []}
+    try:
+        return json.load(io.open(REGISTRY, encoding="utf-8"))
+    except Exception:
+        return {"creatures": []}
 
 
 def load_targets():
@@ -129,6 +139,11 @@ class Handler(BaseHTTPRequestHandler):
             # seulement l'id choisi.
             self._send(200, {"targets": [{"id": t["id"], "label": t.get("label", t["id"]),
                                           "host": t["host"]} for t in load_targets()]})
+        elif u.path == "/registry":
+            self._send(200, {"creatures": [
+                {"id": c["id"], "label": c.get("label", c["id"]),
+                 "retired": bool(c.get("retired"))}
+                for c in load_registry().get("creatures", [])]})
         elif u.path == "/creatures":
             os.makedirs(CREATURES, exist_ok=True)
             names = sorted(f for f in os.listdir(CREATURES) if f.endswith(".zones.json"))
@@ -161,6 +176,8 @@ class Handler(BaseHTTPRequestHandler):
             self._upload_image(payload)
         elif u.path == "/generate":
             self._generate(payload)
+        elif u.path == "/retire":
+            self._retire(payload)
         elif u.path == "/deploy":
             self._deploy(payload)
         else:
@@ -204,6 +221,50 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             BUILD_LOCK.release()
         self._send(200, {"ok": code == 0, "log": out[-6000:]})
+
+    def _retire(self, payload):
+        """Retire une creature des interfaces, ou l'y remet.
+
+        On ne supprime JAMAIS son entree du registre : l'index de skin est
+        persiste en NVS sur la carte, donc retirer la ligne N ferait glisser
+        d'un cran tout ce qui suit, et une carte reglee sur le skin 7 se
+        retrouverait en silence sur un autre. Le creneau reste donc occupe,
+        seul un drapeau change.
+
+        Ce qui est bel et bien rendu, c'est la flash : le cablage cesse de
+        referencer l'art, et l'editeur de liens l'elimine. Le .cpp reste sur
+        le disque, donc remettre la creature ne coute qu'un rebasculement.
+        """
+        cid = (payload or {}).get("id")
+        retired = bool((payload or {}).get("retired"))
+        reg = load_registry()
+        hit = next((c for c in reg.get("creatures", []) if c["id"] == cid), None)
+        if hit is None:
+            self._send(200, {"ok": False, "log": "Creature inconnue : %s" % cid})
+            return
+
+        if retired:
+            hit["retired"] = True
+        else:
+            hit.pop("retired", None)
+        io.open(REGISTRY, "w", encoding="utf-8").write(
+            json.dumps(reg, indent=2, ensure_ascii=False))
+
+        # Le cablage seul est refait : regenerer l'art couterait des minutes
+        # pour un resultat identique.
+        if not BUILD_LOCK.acquire(blocking=False):
+            self._send(200, {"ok": False,
+                             "log": "Une generation ou un envoi tourne deja — attends la fin."})
+            return
+        try:
+            code, out = run([PY, os.path.join(ROOT, "assets", "gen_from_image.py"),
+                             "--rewire"])
+        finally:
+            BUILD_LOCK.release()
+        verbe = "retiree" if retired else "remise"
+        self._send(200, {"ok": code == 0,
+                         "log": "%s %s.\n%s\nEnvoie pour que la carte suive."
+                                % (hit.get("label", cid), verbe, out.strip()[-500:])})
 
     def _deploy(self, payload=None):
         targets = load_targets()

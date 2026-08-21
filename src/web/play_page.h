@@ -179,6 +179,9 @@ function buildFromList(d) {
   var sk = $('skins');
   sk.innerHTML = '';
   (d.skinNames || []).forEach(function (n, i) {
+    // Nom vide = creneau d'une creature retiree. On garde l'index i, qui
+    // reste l'index reel du skin, et on n'affiche simplement rien.
+    if (!n) { return; }
     var b = document.createElement('button');
     b.textContent = n;
     b.dataset.i = i;

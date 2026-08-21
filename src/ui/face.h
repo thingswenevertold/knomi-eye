@@ -50,4 +50,8 @@ int getSkin();
 int getSkinCount();
 const char* getSkinName(int index);
 
+// Creature retiree : son creneau existe toujours, pour ne pas decaler les
+// index persistes en NVS, mais elle ne doit apparaitre dans aucune liste.
+bool isSkinHidden(int index);
+
 }

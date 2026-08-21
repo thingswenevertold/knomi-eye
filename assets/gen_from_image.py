@@ -533,8 +533,102 @@ def emit(name, sets, out_dir):
     return stem
 
 
+def rewire(reg, out):
+    """Re-emet les quatre fichiers de cablage depuis le registre seul.
+
+    Separee de la generation d'art parce qu'elle sert aussi a retirer ou
+    remettre une creature : basculer un drapeau ne doit pas couter les
+    minutes d'un rendu complet.
+    """
+    def c_str(s2):
+        return '"' + s2.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"') + '"'
+
+    GEN_NOTE = "// Genere par assets/gen_from_image.py - ne pas editer a la main.\n"
+
+    # Une creature "retired" garde sa PLACE dans le registre — l'index de skin
+    # est persiste en NVS, la retirer ferait glisser tout ce qui suit — mais on
+    # cesse de referencer son art. L'editeur de liens l'elimine alors, et la
+    # place en flash est rendue. Son .cpp reste sur le disque : remettre la
+    # creature ne demande que de rebasculer le drapeau et de regenerer.
+    def live(c):
+        return not c.get("retired")
+
+    with open(os.path.join(out, "photo_creatures.h"), "w", encoding="utf-8") as fh:
+        fh.write("#pragma once\n" + GEN_NOTE)
+        for c in reg["creatures"]:
+            if not live(c):
+                fh.write('// %s : retiree, art non inclus\n' % c["id"])
+                continue
+            fh.write('#include "%s_ascii.h"\n' % c["id"])
+
+    with open(os.path.join(out, "photo_expr.inc"), "w", encoding="utf-8") as fh:
+        fh.write(GEN_NOTE)
+        for c in reg["creatures"]:
+            if not live(c):
+                continue
+            up = c["id"].upper()
+            fh.write("const asciiart::Expressions %s_EXPRESSIONS = {\n" % up)
+            fh.write("    assets::%s_WINK,      (uint8_t)assets::%s_WINK_COUNT,\n" % (up, up))
+            fh.write("    assets::%s_SURPRISED, (uint8_t)assets::%s_SURPRISED_COUNT,\n" % (up, up))
+            fh.write("    assets::%s_HAPPY,     (uint8_t)assets::%s_HAPPY_COUNT,\n" % (up, up))
+            fh.write("    assets::%s_ANGRY,     (uint8_t)assets::%s_ANGRY_COUNT,\n" % (up, up))
+            fh.write("};\n")
+
+    with open(os.path.join(out, "photo_anims.inc"), "w", encoding="utf-8") as fh:
+        fh.write(GEN_NOTE)
+        for c in reg["creatures"]:
+            up = c["id"].upper()
+            if not live(c):
+                # Le creneau d'animation doit rester occupe, sinon les index
+                # des creatures suivantes glissent eux aussi. On pointe sur
+                # l'art du chat, deja reference donc gratuit : le skin est
+                # masque, cette entree n'est jamais dessinee.
+                fh.write('    { %s, assets::CAT_ASCII, (uint8_t)assets::CAT_ASCII_COUNT,\n'
+                         % c_str("retired_" + c["id"]))
+                fh.write('      assets::CAT_ASCII_SLEEP, (uint8_t)assets::CAT_ASCII_SLEEP_COUNT,\n')
+                fh.write('      39, 0.03333f, 1.0f, &CAT_EXPR },\n')
+                continue
+            fh.write('    { %s, assets::%s_ASCII, (uint8_t)assets::%s_ASCII_COUNT,\n'
+                     % (c_str(c["id"]), up, up))
+            fh.write('      assets::%s_ASCII_SLEEP, (uint8_t)assets::%s_ASCII_SLEEP_COUNT,\n'
+                     % (up, up))
+            fh.write('      39, 0.03333f, 1.0f, &%s_EXPRESSIONS },\n' % up)
+
+    # Les indices d'animation generes suivent les 5 integres en dur :
+    # cat, fire, heart, coffee, fox.
+    BUILTIN_ANIMS = 5
+    with open(os.path.join(out, "photo_skins.inc"), "w", encoding="utf-8") as fh:
+        fh.write(GEN_NOTE)
+        for i, c in enumerate(reg["creatures"]):
+            fh.write('    { %s, %d, %d, %d, %d, %d, %d, %d, %d, %d, %s, %s, false, LAYOUT_ASCIIART, %d, %s },\n'
+                     % (c_str(c["label"]),
+                        c["bg"][0], c["bg"][1], c["bg"][2],
+                        c["fg"][0], c["fg"][1], c["fg"][2],
+                        c["accent"][0], c["accent"][1], c["accent"][2],
+                        c_str(c["eyes"]), c_str(c["mouth"]),
+                        BUILTIN_ANIMS + i,
+                        "true" if not live(c) else "false"))
+
+
+
 if __name__ == "__main__":
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
+
+    # --rewire : une creature a ete retiree ou remise, il n'y a que le
+    # cablage a refaire. Regenerer l'art couterait plusieurs minutes pour
+    # un resultat identique.
+    if "--rewire" in flags:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _reg_path = os.path.join(_here, "creatures", "registry.json")
+        with open(_reg_path, encoding="utf-8") as fh:
+            _reg = json.load(fh)
+        rewire(_reg, os.path.join(_here, "..", "src", "assets"))
+        _n = sum(1 for c in _reg["creatures"] if c.get("retired"))
+        print("cablage regenere : %d creature(s), dont %d retiree(s)"
+              % (len(_reg["creatures"]), _n))
+        raise SystemExit(0)
+
     if not args:
         raise SystemExit(__doc__)
 
@@ -576,50 +670,7 @@ if __name__ == "__main__":
             json.dump(reg, fh, indent=2, ensure_ascii=False)
         print("  registre : %s ajoute" % name)
 
-    def c_str(s2):
-        return '"' + s2.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"') + '"'
-
-    GEN_NOTE = "// Genere par assets/gen_from_image.py - ne pas editer a la main.\n"
-
-    with open(os.path.join(out, "photo_creatures.h"), "w", encoding="utf-8") as fh:
-        fh.write("#pragma once\n" + GEN_NOTE)
-        for c in reg["creatures"]:
-            fh.write('#include "%s_ascii.h"\n' % c["id"])
-
-    with open(os.path.join(out, "photo_expr.inc"), "w", encoding="utf-8") as fh:
-        fh.write(GEN_NOTE)
-        for c in reg["creatures"]:
-            up = c["id"].upper()
-            fh.write("const asciiart::Expressions %s_EXPRESSIONS = {\n" % up)
-            fh.write("    assets::%s_WINK,      (uint8_t)assets::%s_WINK_COUNT,\n" % (up, up))
-            fh.write("    assets::%s_SURPRISED, (uint8_t)assets::%s_SURPRISED_COUNT,\n" % (up, up))
-            fh.write("    assets::%s_HAPPY,     (uint8_t)assets::%s_HAPPY_COUNT,\n" % (up, up))
-            fh.write("    assets::%s_ANGRY,     (uint8_t)assets::%s_ANGRY_COUNT,\n" % (up, up))
-            fh.write("};\n")
-
-    with open(os.path.join(out, "photo_anims.inc"), "w", encoding="utf-8") as fh:
-        fh.write(GEN_NOTE)
-        for c in reg["creatures"]:
-            up = c["id"].upper()
-            fh.write('    { %s, assets::%s_ASCII, (uint8_t)assets::%s_ASCII_COUNT,\n'
-                     % (c_str(c["id"]), up, up))
-            fh.write('      assets::%s_ASCII_SLEEP, (uint8_t)assets::%s_ASCII_SLEEP_COUNT,\n'
-                     % (up, up))
-            fh.write('      39, 0.03333f, 1.0f, &%s_EXPRESSIONS },\n' % up)
-
-    # Les indices d'animation generes suivent les 5 integres en dur :
-    # cat, fire, heart, coffee, fox.
-    BUILTIN_ANIMS = 5
-    with open(os.path.join(out, "photo_skins.inc"), "w", encoding="utf-8") as fh:
-        fh.write(GEN_NOTE)
-        for i, c in enumerate(reg["creatures"]):
-            fh.write('    { %s, %d, %d, %d, %d, %d, %d, %d, %d, %d, %s, %s, false, LAYOUT_ASCIIART, %d },\n'
-                     % (c_str(c["label"]),
-                        c["bg"][0], c["bg"][1], c["bg"][2],
-                        c["fg"][0], c["fg"][1], c["fg"][2],
-                        c["accent"][0], c["accent"][1], c["accent"][2],
-                        c_str(c["eyes"]), c_str(c["mouth"]),
-                        BUILTIN_ANIMS + i))
+    rewire(reg, out)
 
     print()
     for k, v in sets.items():
