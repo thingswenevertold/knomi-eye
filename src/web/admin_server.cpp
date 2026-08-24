@@ -85,71 +85,84 @@ String statusJson() {
 
 String htmlPage() {
     String html;
-    html.reserve(4096);
+    html.reserve(6144);
     html += "<!doctype html><html><head><meta charset='utf-8'>";
     html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
-    html += "<title>knomi-eye admin</title><style>";
-    html += "body{background:#0c0b0a;color:#ff5a00;font-family:ui-monospace,Consolas,monospace;padding:24px;margin:0}";
-    html += "h1{font-size:18px;letter-spacing:.05em;margin:24px 0 16px}";
-    html += "h1:first-child{margin-top:0}";
-    html += "table{border-collapse:collapse;width:100%;max-width:480px;margin-bottom:8px}";
-    html += "td{padding:6px 12px;border-bottom:1px solid #3a2410}";
-    html += "td:first-child{color:#c8763a;width:40%}";
-    html += "ul{list-style:none;padding:0;max-width:480px}";
-    html += "li{padding:6px 12px;border-bottom:1px solid #3a2410;display:flex;justify-content:space-between}";
-    html += "a{color:#ff5a00}";
-    html += ".mirror{width:180px;height:180px;border-radius:50%;border:2px solid #3a2410;";
-    html += "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;";
-    html += "background:#0c0b0a;margin-bottom:24px}";
-    html += ".mirror span{font-size:28px;letter-spacing:.15em}";
-    html += ".bar-row{max-width:480px;margin-bottom:14px}";
-    html += ".bar-label{display:flex;justify-content:space-between;font-size:13px;color:#c8763a;margin-bottom:4px}";
-    html += ".bar-track{background:#221708;border:1px solid #3a2410;height:14px;border-radius:2px;overflow:hidden}";
-    html += ".bar-fill{background:#ff5a00;height:100%;width:0%;transition:width .2s linear}";
-    html += ".skins{display:flex;flex-wrap:wrap;gap:8px;max-width:480px;margin-bottom:24px}";
-    html += ".skin-btn{background:#221708;border:1px solid #3a2410;color:#c8763a;";
-    html += "padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:2px}";
-    html += ".skin-btn.active{background:#ff5a00;color:#0c0b0a;border-color:#ff5a00}";
+    html += "<title>" + String(identity::hostname()) + "</title><style>";
+    // Bold Pastel: cream base, saturated pastel cards, rounded, friendly sans-serif.
+    html += "*{box-sizing:border-box}";
+    html += "body{background:#fdfbf7;color:#2a2a2a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
+    html += "padding:20px;margin:0;max-width:480px}";
+    html += "h1{font-size:20px;font-weight:700;margin:0 0 16px}";
+    html += "h2{font-size:12px;font-weight:700;letter-spacing:.04em;color:#8a8478;text-transform:uppercase;margin:28px 0 10px}";
+    html += "h2:first-of-type{margin-top:0}";
+    html += ".mirror{background:#e0d4ff;border-radius:16px;padding:18px;display:flex;align-items:center;";
+    html += "justify-content:center;gap:14px;margin-bottom:8px}";
+    html += ".mirror span{font-size:26px;font-weight:700;color:#3a2478;letter-spacing:.1em}";
+    html += ".stat-row{display:flex;gap:10px;margin-bottom:8px}";
+    html += ".stat-card{flex:1;border-radius:12px;padding:12px;min-width:0}";
+    html += ".stat-card .label{font-size:11px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}";
+    html += ".stat-card .value{font-size:19px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}";
+    html += ".peach{background:#ffd8c2}.peach .label{color:#a35a2e}.peach .value{color:#7a3d18}";
+    html += ".mint{background:#c9f0e0}.mint .label{color:#2a7a5e}.mint .value{color:#1a4a38}";
+    html += ".lavender{background:#e0d4ff}.lavender .label{color:#6a4ab8}.lavender .value{color:#3a2478}";
+    html += ".butter{background:#fff2b8}.butter .label{color:#a38a1e}.butter .value{color:#7a6a10}";
+    html += ".card{background:#f5f0e8;border-radius:12px;padding:12px 14px;margin-bottom:8px;font-size:13px;color:#6a6a6a}";
+    html += ".bar-track{background:#eee7d8;height:8px;border-radius:4px;overflow:hidden;margin-top:6px}";
+    html += ".bar-fill{height:100%;width:0%;border-radius:4px;transition:width .2s linear}";
+    html += ".skins{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}";
+    html += ".skin-btn{background:#f5f0e8;border:none;color:#6a6a6a;border-radius:20px;";
+    html += "padding:8px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}";
+    html += ".skin-btn.active{background:#ff7a59;color:#fff}";
+    html += "table{border-collapse:collapse;width:100%;font-size:13px}";
+    html += "td{padding:6px 0;color:#6a6a6a}";
+    html += "td:first-child{color:#a8a296;width:45%}";
+    html += "ul{list-style:none;padding:0;margin:0;font-size:13px}";
+    html += "li{padding:6px 0;display:flex;justify-content:space-between;color:#6a6a6a}";
+    html += "a{color:#ff7a59;text-decoration:none;font-weight:600}";
     html += "</style></head><body>";
 
-    html += "<h1>LIVE</h1>";
+    html += "<h1>" + String(identity::hostname()) + "</h1>";
+
     html += "<div class='mirror'><span id='m-eyes'>o o</span><span id='m-mouth'>-</span></div>";
 
-    html += "<h1>SKIN <span style='color:#c8763a;font-size:13px'>(" + String(face::seenCount()) +
-            "/" + String(face::getSkinCount()) + " discovered)</span></h1><div class='skins' id='skins'>";
+    html += "<div class='stat-row'>";
+    html += "<div class='stat-card peach'><div class='label'>ENERGY</div><div class='value' id='s-energy'>--%</div></div>";
+    html += "<div class='stat-card mint'><div class='label'>XP</div><div class='value' id='s-xp'>-</div></div>";
+    html += "<div class='stat-card lavender'><div class='label'>SKIN</div><div class='value' id='s-skin'>-</div></div>";
+    html += "</div>";
+    html += "<div class='card'><span id='s-visits'>-</span> visits &middot; age <span id='s-age'>-</span> &middot; " +
+            String(face::seenCount()) + "/" + String(face::getSkinCount()) + " skins discovered</div>";
+
+    html += "<h2>Skin</h2><div class='skins' id='skins'>";
     for (int i = 0; i < face::getSkinCount(); i++) {
         html += "<button class='skin-btn' data-i='" + String(i) + "' onclick='setSkin(" + String(i) +
                 ")'>" + String(face::getSkinName(i)) + "</button>";
     }
     html += "</div>";
 
-    html += "<h1>TAMAGOTCHI</h1>";
-    const char* petBars[1][2] = {{"energy", "ENERGY"}};
-    for (auto& b : petBars) {
-        html += "<div class='bar-row'><div class='bar-label'><span>" + String(b[1]) +
-                "</span><span id='" + String(b[0]) + "-pct'>--%</span></div>";
-        html += "<div class='bar-track'><div class='bar-fill' id='" + String(b[0]) + "-bar'></div></div></div>";
+    html += "<h2>Usage</h2>";
+    const char* bars[4][3] = {{"heap", "Heap", "peach"}, {"psram", "PSRAM", "mint"},
+                              {"flash", "Flash", "lavender"}, {"signal", "Signal", "butter"}};
+    const char* barColors[4] = {"#ff9d6f", "#4fcf9f", "#a67cff", "#e8c93a"};
+    html += "<div class='card'>";
+    for (int i = 0; i < 4; i++) {
+        html += "<div style='margin-bottom:" + String(i < 3 ? 10 : 0) + "px'>";
+        html += "<div style='display:flex;justify-content:space-between;font-size:12px;font-weight:600'>";
+        html += "<span>" + String(bars[i][1]) + "</span><span id='" + String(bars[i][0]) + "-pct'>--%</span></div>";
+        html += "<div class='bar-track'><div class='bar-fill' id='" + String(bars[i][0]) + "-bar' style='background:" +
+                String(barColors[i]) + "'></div></div></div>";
     }
-    html += "<table><tr><td>XP</td><td id='xp'>-</td></tr>";
-    html += "<tr><td>Age</td><td id='age'>-</td></tr>";
-    html += "<tr><td>Visits</td><td id='visits'>-</td></tr></table>";
+    html += "</div>";
 
-    html += "<h1>USAGE</h1>";
-    const char* bars[4][2] = {{"heap", "HEAP"}, {"psram", "PSRAM"}, {"flash", "FLASH"}, {"signal", "SIGNAL"}};
-    for (auto& b : bars) {
-        html += "<div class='bar-row'><div class='bar-label'><span>" + String(b[1]) +
-                "</span><span id='" + String(b[0]) + "-pct'>--%</span></div>";
-        html += "<div class='bar-track'><div class='bar-fill' id='" + String(b[0]) + "-bar'></div></div></div>";
-    }
-
-    html += "<h1>SYSTEM</h1><table>";
+    html += "<h2>System</h2><div class='card'><table>";
     html += "<tr><td>IP</td><td>" + WiFi.localIP().toString() + "</td></tr>";
     html += "<tr><td>Uptime</td><td id='uptime'>-</td></tr>";
     html += "<tr><td>Chip</td><td>" + String(ESP.getChipModel()) + " rev" + String(ESP.getChipRevision()) + "</td></tr>";
     html += "<tr><td>Flash size</td><td>" + String(ESP.getFlashChipSize() / (1024 * 1024)) + " MB</td></tr>";
-    html += "</table>";
+    html += "</table></div>";
 
-    html += "<h1>FILESYSTEM</h1><ul>";
+    html += "<h2>Filesystem</h2><div class='card'><ul>";
     File root = LittleFS.open("/");
     if (root) {
         File f = root.openNextFile();
@@ -160,7 +173,7 @@ String htmlPage() {
             f = root.openNextFile();
         }
     }
-    html += "</ul>";
+    html += "</ul></div>";
 
     html += "<script>";
     html += "function setBar(id,pct){document.getElementById(id+'-pct').textContent=pct+'%';";
@@ -168,18 +181,25 @@ String htmlPage() {
     html += "function setSkin(i){fetch('/api/skin?index='+i);}";
     html += "function markSkin(i){document.querySelectorAll('.skin-btn').forEach(function(b){";
     html += "b.classList.toggle('active', b.dataset.i==i);});}";
+    html += "var skinNames=[";
+    for (int i = 0; i < face::getSkinCount(); i++) {
+        html += "'" + String(face::getSkinName(i)) + "'";
+        if (i < face::getSkinCount() - 1) html += ",";
+    }
+    html += "];";
     html += "var ws=new WebSocket('ws://'+location.host+'/ws');";
     html += "ws.onmessage=function(ev){var d=JSON.parse(ev.data);";
     html += "document.getElementById('m-eyes').textContent=d.eyes;";
     html += "document.getElementById('m-mouth').textContent=d.mouth;";
     html += "setBar('heap',d.heap_pct);setBar('psram',d.psram_pct);";
     html += "setBar('flash',d.flash_pct);setBar('signal',d.rssi_pct);";
-    html += "setBar('energy',d.energy_pct);";
+    html += "document.getElementById('s-energy').textContent=d.energy_pct+'%';";
+    html += "document.getElementById('s-xp').textContent=d.xp;";
+    html += "document.getElementById('s-skin').textContent=skinNames[d.skin]||'-';";
+    html += "document.getElementById('s-visits').textContent=d.visits;";
     html += "document.getElementById('uptime').textContent=d.uptime_s+' s';";
-    html += "document.getElementById('xp').textContent=d.xp;";
     html += "var ageD=Math.floor(d.age_s/86400), ageH=Math.floor((d.age_s%86400)/3600);";
-    html += "document.getElementById('age').textContent=d.age_s>0?(ageD+'d '+ageH+'h'):'unknown';";
-    html += "document.getElementById('visits').textContent=d.visits;";
+    html += "document.getElementById('s-age').textContent=d.age_s>0?(ageD+'d '+ageH+'h'):'unknown';";
     html += "markSkin(d.skin);};";
     html += "</script></body></html>";
     return html;
